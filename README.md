@@ -291,7 +291,8 @@ npm run dev        # Vite dev server on http://localhost:5173
 ```
 
 In Owlbear Rodeo → **Extensions → Add Custom Extension**, paste the dev manifest
-URL: `http://localhost:5173/manifest.json`.
+URL: `http://localhost:5173/IK-Extension/manifest.json`. (The app is served under
+the `/IK-Extension/` base path — matching the GitHub Pages host — in dev too.)
 
 Scripts:
 
@@ -322,10 +323,24 @@ Scripts:
 
 ## Deployment
 
-`npm run build` produces a static `dist/` (including `manifest.json` and icons).
-Host it anywhere static (GitHub Pages, Netlify, Cloudflare Pages, …) and share
-`<host>/manifest.json`. Make sure the manifest's `action.popover`,
-`background_url`, and `icon` paths resolve on the final host.
+Hosted on **GitHub Pages** via GitHub Actions. Pushing to `main` runs
+`.github/workflows/deploy.yml`, which builds `dist/` and publishes it. The live
+manifest URL to add in Owlbear is:
+
+```
+https://wilderself.github.io/IK-Extension/manifest.json
+```
+
+Because a GitHub Pages *project* site is served from `/IK-Extension/` (not the
+domain root), the build sets Vite `base: "/IK-Extension/"` and the manifest's
+`icon`, `action.popover`, and `background_url` are absolute paths carrying that
+prefix, so they resolve against the Pages origin. If the repo is renamed or moved
+to a custom domain at the root, update `base` in `vite.config.ts` and the paths in
+`public/manifest.json` to match.
+
+`npm run build` reproduces the exact `dist/` the workflow publishes, so you can
+host it anywhere static (Netlify, Cloudflare Pages, …) by serving it under a
+matching `/IK-Extension/` path or adjusting the base as above.
 
 ## Design decisions & non-goals
 

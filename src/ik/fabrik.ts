@@ -97,7 +97,12 @@ export function solveChain(
       if (limit) {
         const inAngle = angle(p[i - 2], p[i - 1]);
         const rel = wrapAngle(outAngle - inAngle);
-        const clamped = Math.min(limit.max, Math.max(limit.min, rel));
+        // Tolerate an inverted limit (min > max, e.g. a user typo in the
+        // sidebar): order the bounds so the joint clamps to the real range
+        // instead of collapsing onto a single angle.
+        const lo = Math.min(limit.min, limit.max);
+        const hi = Math.max(limit.min, limit.max);
+        const clamped = Math.min(hi, Math.max(lo, rel));
         outAngle = inAngle + clamped;
       }
       p[i] = add(p[i - 1], scale({ x: Math.cos(outAngle), y: Math.sin(outAngle) }, restLengths[i - 1]));

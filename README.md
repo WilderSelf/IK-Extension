@@ -8,7 +8,7 @@ outward from it, then drag any token to make the whole chain flex realistically
 Perfect for a monster's long claws, a segmented tentacle, a mechanical arm, or a
 hanging rope your players can swing.
 
-<p align="center"><em>root ⚓ → joint → joint → tip &nbsp;&nbsp;·&nbsp;&nbsp; drag the tip, the arm follows</em></p>
+<p align="center"><em>root (pinned) → joint → joint → tip &nbsp;&nbsp;·&nbsp;&nbsp; drag the tip, the arm follows</em></p>
 
 ---
 
@@ -67,7 +67,7 @@ hanging rope your players can swing.
    Extension**, using your hosted (or local dev) `manifest.json` URL.
 2. Select the **IK Chains** tool in the toolbar, then its **Build** mode (the
    chain-link icon).
-3. **Click the token** that should be the anchor — this sets the **root** (⚓).
+3. **Click the token** that should be the anchor — this sets the **root** (the pinned anchor).
 4. **Click tokens outward** from the root, in order, to link them into a limb.
    To start another limb, click an existing node (to re-anchor there), then keep
    clicking new tokens.
@@ -83,7 +83,7 @@ hanging rope your players can swing.
 
 | Term | Meaning |
 | --- | --- |
-| **Root (⚓)** | The pinned pivot. During IK it never moves; dragging it translates the whole chain rigidly. |
+| **Root** | The pinned pivot. During IK it never moves; dragging it translates the whole chain rigidly. |
 | **Node** | Any token in the chain. Every non-root node has exactly one parent. |
 | **Bone** | The connection between a node and its parent. Its **rest length** is fixed (captured at build time). |
 | **Branch** | A linear strand from the root outward. Branches that split at the root solve **independently**; two tips forking off a shared unlocked joint are solved **jointly** so they negotiate that joint. |
@@ -126,7 +126,7 @@ item permissions.
 
 ## Sidebar reference
 
-At the top of the panel, **↶ Undo** / **↷ Redo** step through rig edits (build,
+At the top of the panel, **Undo** / **Redo** step through rig edits (build,
 link, remove, recalibrate, settings, constraints, preset apply). History is
 per-sidebar-session; it isn't shared between clients and resets when the sidebar
 is reopened.
@@ -141,7 +141,7 @@ Each chain card exposes:
 | **Players may pose** | Allow non-GM players to pose this chain. |
 | **Recalibrate** | Re-measure current token spacing as the new rest lengths (use after rearranging tokens by hand). |
 | **Save as preset** | Name the current rig and store its shape as a reusable preset (see below). |
-| **Tokens** (tree) | The chain's nodes, indented by depth. Per node: `player` / `lock` toggles, a `bend` limit (where applicable), and `✕` to remove (removing the root deletes the chain; removing an interior node re-parents its children). |
+| **Tokens** (tree) | The chain's nodes, indented by depth. Per node: `player` / `lock` toggles, a `bend` limit (where applicable), and a remove button (removing the root deletes the chain; removing an interior node re-parents its children). |
 | **Delete** | Remove the whole chain. |
 
 Below the chain cards, a **Presets** panel lists every saved preset with an

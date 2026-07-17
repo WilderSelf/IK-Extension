@@ -1,7 +1,7 @@
 import OBR, { buildLine, buildShape, type Item, type Vector2 } from "@owlbear-rodeo/sdk";
+import { type Vec2 } from "../types";
 import { CONNECTOR_TAG } from "./constants";
 import { getChains } from "./chainStore";
-import { getPositions } from "./scene";
 
 const HANDLE_COLOR = "#f2b134";
 const JOINT_DIAMETER = 16;
@@ -77,16 +77,27 @@ async function rebuildConnectors(): Promise<void> {
   const active = Object.values(chains).filter((c) => c.settings.showConnectors);
   if (active.length === 0) return;
 
-  // Fetch every chained token's position in ONE scene scan. Doing it per-chain
-  // meant N full getItems sweeps for N active chains (50 chains -> 50 scans).
-  const allIds = [...new Set(active.flatMap((c) => Object.keys(c.nodes)))];
-  const positions = await getPositions(allIds);
+  // Fetch every chained token's position AND visibility in ONE scene scan.
+  // Doing it per-chain meant N full getItems sweeps for N active chains.
+  const allIds = new Set(active.flatMap((c) => Object.keys(c.nodes)));
+  const scan = await OBR.scene.items.getItems((i: Item) => allIds.has(i.id));
+  const positions: Record<string, Vec2> = {};
+  const visible: Record<string, boolean> = {};
+  for (const it of scan) {
+    positions[it.id] = { x: it.position.x, y: it.position.y };
+    visible[it.id] = it.visible;
+  }
+  // Overlay items live on the shared DRAWING layer and are seen by everyone, so
+  // never draw a bone or handle onto a hidden token — that would betray the
+  // position of something the GM deliberately hid from players.
+  const shown = (id: string) => positions[id] && visible[id] !== false;
 
   const items: Item[] = [];
   for (const chain of active) {
     // Bones first, then handle dots on top, then a distinct ring on the root.
     for (const [id, node] of Object.entries(chain.nodes)) {
       if (!node.parentId) continue;
+      if (!shown(id) || !shown(node.parentId)) continue;
       const a = positions[node.parentId];
       const b = positions[id];
       if (!a || !b) continue;
@@ -105,8 +116,8 @@ async function rebuildConnectors(): Promise<void> {
       );
     }
     for (const id of Object.keys(chain.nodes)) {
+      if (!shown(id)) continue;
       const p = positions[id];
-      if (!p) continue;
       const isRoot = id === chain.rootId;
       items.push(handle(p, isRoot ? ROOT_DIAMETER : JOINT_DIAMETER, isRoot));
     }

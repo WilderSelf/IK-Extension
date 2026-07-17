@@ -95,6 +95,35 @@ describe("solveChain (FABRIK)", () => {
     expect(dist(limited[0], limited[1])).toBeCloseTo(10, 3);
     expect(dist(limited[1], limited[2])).toBeCloseTo(10, 3);
   });
+
+  it("tolerates an inverted bend limit (min > max) instead of locking", () => {
+    const relAngle = (out: { x: number; y: number }[], i: number) => {
+      const a = Math.atan2(out[i - 1].y - out[i - 2].y, out[i - 1].x - out[i - 2].x);
+      const b = Math.atan2(out[i].y - out[i - 1].y, out[i].x - out[i - 1].x);
+      return Math.atan2(Math.sin(b - a), Math.cos(b - a));
+    };
+    const line = [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 20, y: 0 },
+    ];
+    const rest = [10, 10];
+    const target = { x: 10, y: -15 };
+
+    // Same range, expressed backwards. The solver should order the bounds and
+    // produce the same clamp as { min: 0, max: π } rather than collapsing the
+    // joint onto a single angle.
+    const forward = solveChain(line, rest, target, {
+      iterations: 40,
+      constraints: [undefined, undefined, { min: 0, max: Math.PI }],
+    });
+    const inverted = solveChain(line, rest, target, {
+      iterations: 40,
+      constraints: [undefined, undefined, { min: Math.PI, max: 0 }],
+    });
+    expect(relAngle(inverted, 2)).toBeCloseTo(relAngle(forward, 2), 6);
+    expect(dist(inverted[1], inverted[2])).toBeCloseTo(10, 3);
+  });
 });
 
 // body -> a1 -> a2 (branch A), body -> b1 (branch B)

@@ -28,6 +28,11 @@ export function isToken(item: Item): boolean {
   return TOKEN_LAYERS.has(item.layer);
 }
 
+/** Current selection as an ordered list of item ids (selection order preserved). */
+export async function getSelection(): Promise<string[]> {
+  return (await OBR.player.getSelection()) ?? [];
+}
+
 /** Fetch current positions for the given item ids. */
 export async function getPositions(ids: string[]): Promise<Record<string, Vec2>> {
   if (ids.length === 0) return {};

@@ -4,6 +4,15 @@ import type { Chain, ChainMap, JointConstraint } from "../types";
 import { DEFAULT_ROTATION_OFFSET_DEG } from "../types";
 import type { TemplateMap } from "../model/templates";
 import {
+  type History,
+  canRedo,
+  canUndo,
+  initHistory,
+  record,
+  redo,
+  undo,
+} from "../model/history";
+import {
   deleteChain,
   deleteTemplate,
   getChains,
@@ -24,9 +33,12 @@ import {
 import { getItemNames, getPositions, getSelection } from "../obr/scene";
 import { orderedNodes } from "../ik/tree";
 
+const mapEq = (a: ChainMap, b: ChainMap) => JSON.stringify(a) === JSON.stringify(b);
+
 export function SidebarApp() {
   const [chains, setChains] = useState<ChainMap>({});
   const [templates, setTemplates] = useState<TemplateMap>({});
+  const [history, setHistory] = useState<History<ChainMap>>(() => initHistory({}));
   const [names, setNames] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
@@ -40,9 +52,21 @@ export function SidebarApp() {
       // state on a dead component and make sure the subscriptions are cleaned up.
       if (!mounted) return;
       setReady(true);
-      getChains().then((c) => mounted && setChains(c)).catch(() => {});
+      getChains()
+        .then((c) => {
+          if (!mounted) return;
+          setChains(c);
+          setHistory(initHistory(c)); // baseline: undo shouldn't reach before load
+        })
+        .catch(() => {});
       getTemplates().then((t) => mounted && setTemplates(t)).catch(() => {});
-      unsubChains = onChainsChange(setChains);
+      // Every chain change (from here, the tool, or the context menu) is recorded
+      // so undo/redo covers all rig edits, not just sidebar ones. Echoes of our
+      // own writes are ignored by `record` (value-equal to the present).
+      unsubChains = onChainsChange((c) => {
+        setChains(c);
+        setHistory((h) => record(h, c, mapEq));
+      });
       unsubTemplates = onTemplatesChange(setTemplates);
     });
     return () => {
@@ -72,6 +96,17 @@ export function SidebarApp() {
     setChains(next);
     await saveChains(next);
   }
+
+  // Undo/redo write a previous snapshot back to the scene. The resulting change
+  // echoes through onChainsChange, but `record` treats it as a no-op (value-equal
+  // to the present we just set), so the redo stack survives.
+  async function applyHistory(nextH: History<ChainMap>) {
+    setHistory(nextH);
+    setChains(nextH.present);
+    await saveChains(nextH.present);
+  }
+  const onUndo = () => applyHistory(undo(history));
+  const onRedo = () => applyHistory(redo(history));
 
   async function patchTemplates(next: TemplateMap) {
     setTemplates(next);
@@ -112,7 +147,17 @@ export function SidebarApp() {
 
   return (
     <div>
-      <h1>IK Chains</h1>
+      <div className="app-header">
+        <h1>IK Chains</h1>
+        {ready && (
+          <span className="undo-redo">
+            <button className="mini-btn" title="Undo the last rig change"
+              disabled={!canUndo(history)} onClick={onUndo}>↶ Undo</button>
+            <button className="mini-btn" title="Redo"
+              disabled={!canRedo(history)} onClick={onRedo}>↷ Redo</button>
+          </span>
+        )}
+      </div>
       <p className="hint">
         Build articulated token chains and pose them like limbs.
         <ol>

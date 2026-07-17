@@ -14,6 +14,7 @@ import {
   MODE_BUILD,
   MODE_POSE,
   TOOL_ID,
+  asset,
 } from "./constants";
 import { findChainForToken, getChains, saveChains, createChain, addNode } from "./chainStore";
 import { getPositions, isToken, radToObrDeg } from "./scene";
@@ -296,13 +297,13 @@ function onBuildDeactivate(): void {
 export async function setupTool(): Promise<void> {
   await OBR.tool.create({
     id: TOOL_ID,
-    icons: [{ icon: "/icon.svg", label: "IK Chains" }],
+    icons: [{ icon: asset("icon.svg"), label: "IK Chains" }],
     defaultMode: MODE_POSE,
   });
 
   await OBR.tool.createMode({
     id: MODE_POSE,
-    icons: [{ icon: "/pose.svg", label: "Pose chain" }],
+    icons: [{ icon: asset("pose.svg"), label: "Pose chain" }],
     onToolDragStart: onPoseDragStart,
     onToolDragMove: onPoseDragMove,
     onToolDragEnd: onPoseDragEnd,
@@ -311,7 +312,7 @@ export async function setupTool(): Promise<void> {
 
   await OBR.tool.createMode({
     id: MODE_BUILD,
-    icons: [{ icon: "/build.svg", label: "Build chain" }],
+    icons: [{ icon: asset("build.svg"), label: "Build chain" }],
     onToolClick: onBuildClick,
     onDeactivate: onBuildDeactivate,
   });

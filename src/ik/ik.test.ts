@@ -203,6 +203,65 @@ describe("pose", () => {
     expect(dist(p.spur, pos.spur)).toBeGreaterThan(0.5);
   });
 
+  it("pins the solve at a locked joint (sub-base), leaving everything above it fixed", () => {
+    // body -> A -> B(locked) -> C. Grabbing C must anchor at B: body/A/B stay
+    // put and only the B->C segment flexes. Without pinning, FABRIK from the
+    // root would drag A and B along too.
+    const chain: Chain = {
+      id: "c3",
+      rootId: "body",
+      nodes: {
+        body: { parentId: null, restLength: 0 },
+        A: { parentId: "body", restLength: 10 },
+        B: { parentId: "A", restLength: 10 },
+        C: { parentId: "B", restLength: 10 },
+      },
+      settings: { ...defaultSettings(), nodeOverrides: { B: { locked: true } } },
+    };
+    const pos = {
+      body: { x: 0, y: 0 },
+      A: { x: 10, y: 0 },
+      B: { x: 20, y: 0 },
+      C: { x: 30, y: 0 },
+    };
+    const { positions: p } = solvePose(chain, pos, { C: { x: 20, y: 12 } });
+    // Above the pin: untouched.
+    expect(p.body).toEqual(pos.body);
+    expect(p.A).toEqual(pos.A);
+    expect(p.B).toEqual(pos.B);
+    // Below the pin: C moved and its bone length to the pin is preserved.
+    expect(dist(p.B, p.C)).toBeCloseTo(10, 5);
+    expect(dist(p.C, pos.C)).toBeGreaterThan(1);
+  });
+
+  it("uses the DEEPEST locked joint as the pin when several are locked", () => {
+    const chain: Chain = {
+      id: "c4",
+      rootId: "n0",
+      nodes: {
+        n0: { parentId: null, restLength: 0 },
+        n1: { parentId: "n0", restLength: 10 },
+        n2: { parentId: "n1", restLength: 10 },
+        n3: { parentId: "n2", restLength: 10 },
+      },
+      settings: {
+        ...defaultSettings(),
+        nodeOverrides: { n1: { locked: true }, n2: { locked: true } },
+      },
+    };
+    const pos = {
+      n0: { x: 0, y: 0 },
+      n1: { x: 10, y: 0 },
+      n2: { x: 20, y: 0 },
+      n3: { x: 30, y: 0 },
+    };
+    const { positions: p } = solvePose(chain, pos, { n3: { x: 20, y: 15 } });
+    // n2 is the deepest lock, so n0/n1/n2 all hold; only n3 moves.
+    expect(p.n1).toEqual(pos.n1);
+    expect(p.n2).toEqual(pos.n2);
+    expect(dist(p.n3, pos.n3)).toBeGreaterThan(1);
+  });
+
   it("solves two independent branches simultaneously (multi-target group move)", () => {
     const { positions: p } = solvePose(chain, positions, {
       a2: { x: 8, y: 14 },

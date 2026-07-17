@@ -55,29 +55,42 @@ export function solvePose(
     // Snapshot pre-solve positions for THIS target so the rigid carry below is
     // measured against a stable frame (correct even across sequential targets).
     const snap: Record<string, Vec2> = { ...out };
-    const pts = path.map((id) => snap[id]);
+
+    // A locked joint on the path acts as a pin (sub-base): the solve is anchored
+    // at the DEEPEST locked ancestor of the grabbed node, so everything above it
+    // stays put and only the segment below flexes — a locked rope anchor holds,
+    // a locked shoulder keeps the forearm swinging from a fixed point. The
+    // grabbed node itself is never locked (grabbing a locked node is blocked),
+    // and the true root is always at least an implicit pin at index 0.
+    let baseIdx = 0;
+    for (let i = 1; i < path.length - 1; i++) {
+      if (chain.settings.nodeOverrides?.[path[i]]?.locked) baseIdx = i;
+    }
+
+    const solvePath = path.slice(baseIdx); // [pin, ..., targetId]
+    const pts = solvePath.map((id) => snap[id]);
     // A path node with no known position (e.g. its token was deleted mid-drag)
     // would inject NaN through the solver and persist it — skip this target.
     if (pts.some((p) => !p)) continue;
 
-    const rest = path.slice(1).map((id) => chain.nodes[id].restLength);
+    const rest = solvePath.slice(1).map((id) => chain.nodes[id].restLength);
     const solved = solveChain(pts, rest, targetPos, opts);
-    path.forEach((id, i) => {
+    solvePath.forEach((id, i) => {
       out[id] = solved[i];
     });
 
     // Rigidly carry every sub-tree that hangs OFF the solved path — not just the
     // grabbed node's own descendants. Each joint on the path moved (and rotated
     // about its incoming bone), so its off-path children must ride along or the
-    // bone to a sibling branch would silently stretch/detach. The root (i=0) is
-    // pinned, so its branches never move here.
-    for (let i = 1; i < path.length; i++) {
+    // bone to a sibling branch would silently stretch/detach. Joints above the
+    // pin (indices 0..baseIdx) never move, so start the carry just below it.
+    for (let i = baseIdx + 1; i < path.length; i++) {
       const nodeId = path[i];
       const nextOnPath: string | undefined = path[i + 1];
       const oldSelf = snap[nodeId];
       const oldParent = snap[path[i - 1]];
-      const newSelf = solved[i];
-      const newParent = solved[i - 1];
+      const newSelf = out[nodeId];
+      const newParent = out[path[i - 1]];
       const trans = sub(newSelf, oldSelf);
       // atan2(0,0) is 0, so a zero-length bone would yield a bogus rotation —
       // fall back to translation-only when either frame is degenerate.

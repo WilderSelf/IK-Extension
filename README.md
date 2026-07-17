@@ -109,8 +109,9 @@ per chain and per node from the sidebar:
   specific node is movable by players. The **root/anchor is off-limits to
   players by default**, so a rope's segments can be player-swingable while its
   anchor stays fixed — flip the root's **player** box to allow it.
-- **lock** (per node) — pin a node so *nobody* (not even the GM in Pose mode) can
-  grab it.
+- **lock** (per node) — pin a node: *nobody* (not even the GM in Pose mode) can
+  grab it, and it anchors the chain during solves, so posing a node farther out
+  flexes only the segment below the lock and leaves everything above it fixed.
 
 Enforcement lives in the tool logic, so it holds regardless of Owlbear's own
 item permissions.
@@ -282,10 +283,12 @@ Host it anywhere static (GitHub Pages, Netlify, Cloudflare Pages, …) and share
   pose. Angle limits are intentionally out of scope for now (see Roadmap).
 - **Pose lives in a dedicated tool.** Real-time solving needs a custom tool's
   drag events; the trade-off is selecting the IK tool to pose.
-- **"Lock" means ungrabbable, not immovable.** A locked node can't be grabbed as
-  an IK target, but it still moves when it lies on the path a *different* grabbed
-  node solves (it's part of that limb). Pinning a mid-chain joint so solves route
-  around it would need sub-base FABRIK (see Roadmap).
+- **"Lock" pins a joint.** A locked node can't be grabbed *and* acts as an anchor
+  during solves: posing a node farther out anchors the chain at the deepest
+  locked ancestor, so everything above it holds still and only the segment below
+  flexes. Lock a rope's anchor and players can swing the rest; lock a shoulder and
+  the forearm still poses from a fixed pivot. (Dragging the root itself still
+  translates the whole tree — you're moving the anchor.)
 - **Build mode is single-writer, last-write-wins.** A build session keeps an
   in-memory copy of the chain map to avoid read-after-write races on OBR's async
   metadata. Concurrent sidebar edits during an active build session may be
@@ -296,7 +299,8 @@ Host it anywhere static (GitHub Pages, Netlify, Cloudflare Pages, …) and share
 Ideas for future iterations:
 
 - Optional per-joint **angle constraints** (e.g. a knee that bends one way).
-- Shared intermediate **sub-bases** (true multi-effector FABRIK) for forks that
-  aren't at the root.
+- **Multi-effector FABRIK** for forks that share an intermediate joint (locked
+  joints already anchor a solve; this would let two grabbed tips negotiate a
+  shared, unlocked sub-base).
 - Chain **templates / presets** and copy-paste of rigs between creatures.
 - Undo integration and richer in-canvas handles.

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Chain } from "../types";
 import { defaultSettings } from "../types";
 import { solveChain } from "./fabrik";
-import { branchPath, shallowestSelectedPerBranch, subtree } from "./tree";
+import { branchPath, orderedNodes, shallowestSelectedPerBranch, subtree } from "./tree";
 import { rigidTranslate, solvePose } from "./pose";
 import { dist } from "./vec";
 
@@ -88,6 +88,13 @@ describe("tree utils", () => {
     expect(shallowestSelectedPerBranch(chain, ["a2", "b1"]).sort()).toEqual(["a2", "b1"]);
     expect(shallowestSelectedPerBranch(chain, ["body", "a2"])).toEqual(["a2"]);
   });
+
+  it("orderedNodes lists the tree depth-first with depths", () => {
+    const ordered = orderedNodes(chain);
+    expect(ordered[0]).toEqual({ id: "body", depth: 0 });
+    const depthById = Object.fromEntries(ordered.map((n) => [n.id, n.depth]));
+    expect(depthById).toEqual({ body: 0, a1: 1, a2: 2, b1: 1 });
+  });
 });
 
 describe("pose", () => {
@@ -124,5 +131,18 @@ describe("pose", () => {
     // Grab a1; a2 (its child) must ride along, keeping |a1-a2| == 10.
     const { positions: p } = solvePose(chain, positions, { a1: { x: 0, y: 10 } });
     expect(dist(p.a1, p.a2)).toBeCloseTo(10, 5);
+  });
+
+  it("solves two independent branches simultaneously (multi-target group move)", () => {
+    const { positions: p } = solvePose(chain, positions, {
+      a2: { x: 8, y: 14 },
+      b1: { x: -6, y: 6 },
+    });
+    // Root pinned, both branches keep their rest lengths.
+    expect(p.body.x).toBeCloseTo(0, 5);
+    expect(p.body.y).toBeCloseTo(0, 5);
+    expect(dist(p.body, p.a1)).toBeCloseTo(10, 2);
+    expect(dist(p.a1, p.a2)).toBeCloseTo(10, 2);
+    expect(dist(p.body, p.b1)).toBeCloseTo(10, 2);
   });
 });

@@ -2,73 +2,291 @@
 
 Rig map tokens into **2D inverse-kinematics chains** and pose them like
 articulated limbs. Assign one token as a pinned **root**, link other tokens
-outward from it, then drag any token to make the whole chain flex — the root
-stays put and acts as the pivot. Great for a monster's long claws, a
-segmented tentacle, or a hanging rope.
+outward from it, then drag any token to make the whole chain flex realistically
+— the root stays put and acts as the pivot.
 
-## Status
+Perfect for a monster's long claws, a segmented tentacle, a mechanical arm, or a
+hanging rope your players can swing.
 
-**Phase 1 (MVP).** Implemented so far:
+<p align="center"><em>root ⚓ → joint → joint → tip &nbsp;&nbsp;·&nbsp;&nbsp; drag the tip, the arm follows</em></p>
 
-- A dedicated **IK Chains** toolbar tool with two modes:
-  - **Build** — click a token to set the root, then click tokens outward to
-    link them; click an existing node to branch from it.
+---
+
+## Contents
+
+- [What it does](#what-it-does)
+- [Quick start](#quick-start)
+- [Concepts](#concepts)
+- [Posing: how movement works](#posing-how-movement-works)
+- [Permissions](#permissions)
+- [Sidebar reference](#sidebar-reference)
+- [Worked examples](#worked-examples)
+- [Architecture](#architecture)
+- [Development](#development)
+- [Testing & verification](#testing--verification)
+- [Deployment](#deployment)
+- [Design decisions & non-goals](#design-decisions--non-goals)
+- [Roadmap](#roadmap)
+
+---
+
+## What it does
+
+- **Dedicated `IK Chains` toolbar tool** with two modes:
+  - **Build** — click tokens to assemble a chain (root, then outward; click an
+    existing node to branch).
   - **Pose** — drag any token to solve the chain in real time
-    ([FABRIK](https://en.wikipedia.org/wiki/Inverse_kinematics), root pinned,
-    rigid bones, optional auto-rotate). Dragging the root translates the whole
-    chain; dragging a mid/leaf token flexes the branch and trails the rest.
-    Multi-select (box-select a cluster) group-moves rigidly while the chain
-    back to the root re-solves.
-- **Context menu** entries: *Set as IK Root*, *Remove from IK Chain*.
-- A **sidebar** (the toolbar action) listing chains with per-chain settings:
-  auto-rotate, connector overlay, "players may pose", recalibrate, delete.
-- Chains persist in **scene metadata** (synced to all clients, survive reload)
-  and are pruned when a referenced token is deleted.
-- **Permissions**: GM-only by default; per-chain "players may pose" and
-  per-node overrides (e.g. a rope players can swing but whose anchor stays
-  locked) enforced in the tool logic.
+    ([FABRIK](https://en.wikipedia.org/wiki/FABRIK), root pinned).
+- **Branching trees** — one root can sprout several independent limbs (e.g. a
+  body with three claws).
+- **Group move** — box-select a cluster (a hand and all its fingers) and drag it
+  as a rigid group; the chain back to the root re-solves to follow.
+- **Rigid bones** — segment lengths are captured when you build the chain and
+  preserved while posing, with a one-click **Recalibrate** to re-measure.
+- **Auto-rotate** — tokens rotate to face down their bone as the limb flexes
+  (per-chain, with a tunable rotation offset for art that doesn't point "up").
+- **Permissions** — GM-only by default, with per-chain and per-node overrides so
+  players can, say, swing a rope whose anchor stays locked.
+- **Connector overlay** — optional lines drawn along the skeleton for building
+  and debugging (off by default).
+- **Persistence & sync** — chains live in the scene's metadata, so they survive
+  reloads and sync to every connected client automatically. Deleting a token
+  prunes it from its chain.
 
-Planned next: richer sidebar tree editing, joint-angle limits, and a broader
-group-move UX. See the design notes in the PR description.
+## Quick start
+
+1. **Install** the extension in Owlbear Rodeo → **Extensions → Add Custom
+   Extension**, using your hosted (or local dev) `manifest.json` URL.
+2. Select the **IK Chains** tool in the toolbar, then its **Build** mode (the
+   chain-link icon).
+3. **Click the token** that should be the anchor — this sets the **root** (⚓).
+4. **Click tokens outward** from the root, in order, to link them into a limb.
+   To start another limb, click an existing node (to re-anchor there), then keep
+   clicking new tokens.
+5. Switch to **Pose** mode (the hand icon) and **drag a token**. The chain flexes
+   with the root pinned. Drag the root to move the whole thing.
+6. Open the extension's **sidebar** (its toolbar action icon) to tweak settings,
+   edit the tree, and manage permissions.
+
+> **Tip:** you can also right-click a token and choose **Set as IK Root** or
+> **Remove from IK Chain** from the context menu.
+
+## Concepts
+
+| Term | Meaning |
+| --- | --- |
+| **Root (⚓)** | The pinned pivot. During IK it never moves; dragging it translates the whole chain rigidly. |
+| **Node** | Any token in the chain. Every non-root node has exactly one parent. |
+| **Bone** | The connection between a node and its parent. Its **rest length** is fixed (captured at build time). |
+| **Branch** | A linear strand from the root outward. Branches fan out from the root and solve **independently**. |
+| **Tip** | A leaf node (no children) — the end of a limb. |
+| **Grabbed node** | The node you drag; it becomes the IK target for its branch. Nodes *beyond* it trail rigidly. |
+
+## Posing: how movement works
+
+- **Drag the root** → the entire chain translates rigidly (nothing bends).
+- **Drag a tip or mid node** → the path from the root to that node re-solves with
+  FABRIK so the node reaches your cursor; the root stays pinned, and any nodes
+  *past* the grabbed one trail along rigidly.
+- **Box-select then drag** → for each branch, the **shallowest selected node**
+  becomes that branch's IK target and deeper selected nodes ride along as a rigid
+  cluster. So selecting a hand + its fingers and dragging moves them together
+  while the arm re-solves back to the body.
+- **Unreachable target** → if you pull past the chain's full length, it simply
+  straightens toward the cursor.
+
+All of this streams through Owlbear's **interaction API**, so motion is smooth
+locally and sampled to the network for other players — the scene is only written
+once, when you release.
+
+## Permissions
+
+By default, **only the GM** can build or pose chains. You can loosen this
+per chain and per node from the sidebar:
+
+- **Players may pose** (per chain) — lets non-GM players drag this chain's nodes.
+- **player** (per node) — when players-may-pose is on, toggle whether *this*
+  specific node is movable by players. The **root/anchor is off-limits to
+  players by default**, so a rope's segments can be player-swingable while its
+  anchor stays fixed — flip the root's **player** box to allow it.
+- **lock** (per node) — pin a node so *nobody* (not even the GM in Pose mode) can
+  grab it.
+
+Enforcement lives in the tool logic, so it holds regardless of Owlbear's own
+item permissions.
+
+## Sidebar reference
+
+Each chain card exposes:
+
+| Control | Effect |
+| --- | --- |
+| **Auto-rotate tokens** | Rotate each token to face down its bone as it flexes. |
+| **Rotation offset (°)** | Added to the computed bone angle. Default `90` (art points "up"); change if a token's forward is a different direction. |
+| **Show connector lines** | Draw a debug line along each bone (non-interactive). |
+| **Players may pose** | Allow non-GM players to pose this chain. |
+| **Recalibrate** | Re-measure current token spacing as the new rest lengths (use after rearranging tokens by hand). |
+| **Tokens** (tree) | The chain's nodes, indented by depth. Per node: `player` / `lock` toggles and `✕` to remove (removing the root deletes the chain; removing an interior node re-parents its children). |
+| **Delete** | Remove the whole chain. |
+
+## Worked examples
+
+**Monster with two claws**
+
+1. Build mode → click the **body** (root).
+2. Click the first claw's segments outward: `body → claw-a-1 → claw-a-2 → claw-a-tip`.
+3. Click the **body** again to re-anchor, then build the second claw:
+   `body → claw-b-1 → claw-b-2 → claw-b-tip`.
+4. Pose mode → drag either claw tip; each claw articulates independently while
+   the body stays put.
+
+**Player-swingable rope**
+
+1. Build mode → click the ceiling **anchor** (root), then the rope segments down
+   to the free **end**.
+2. Sidebar → enable **Players may pose**. Leave the anchor's **player** box off
+   (players can swing the rope but can't move where it's tied).
+3. Players select Pose mode and drag the rope end to swing it; the anchor holds.
 
 ## Architecture
 
-- `src/ik/` — **pure, unit-tested** solver with no OBR dependencies:
-  `fabrik.ts` (FABRIK), `tree.ts` (branch/subtree/selection helpers),
-  `pose.ts` (orchestration + rigid sub-tree carry), `vec.ts` (2D math).
-- `src/obr/` — Owlbear wiring: `tool.ts` (pose + build modes via the
-  interaction API), `contextMenu.ts`, `chainStore.ts` (scene-metadata CRUD),
-  `connectors.ts` (overlay), `scene.ts`/`constants.ts` (helpers).
-- `src/background.ts` — registers the tool/menus on `OBR.onReady` and keeps
-  chains pruned + connectors in sync. Loaded via the manifest's `background_url`.
-- `src/ui/` — React sidebar (`SidebarApp.tsx`), the manifest `action` popover.
-- `public/manifest.json` — the Owlbear extension manifest.
+Two entry points, coordinated purely through Owlbear scene metadata:
 
-## Develop
+- **`background.html` → `src/background.ts`** — the always-loaded page (declared
+  via the manifest's `background_url`). On `OBR.onReady` it registers the tool
+  and context menus, prunes chains that reference deleted tokens, and keeps the
+  connector overlay in sync.
+- **`index.html` → `src/ui/SidebarApp.tsx`** — the React action popover (the
+  sidebar).
+
+### Modules
+
+```
+src/
+├─ types.ts              # Chain / ChainNode / ChainSettings, metadata keys
+├─ model/
+│  └─ chains.ts          # PURE chain-model ops (create/add/remove/prune/…)
+├─ ik/                   # PURE solver — no Owlbear imports, fully unit-tested
+│  ├─ vec.ts             #   2D vector math
+│  ├─ fabrik.ts          #   FABRIK solver
+│  ├─ tree.ts            #   branch / subtree / ordering / selection helpers
+│  └─ pose.ts            #   orchestration: solve branch + rigid sub-tree carry
+├─ obr/                  # Owlbear wiring
+│  ├─ constants.ts       #   ids, layers, rotation default
+│  ├─ scene.ts           #   item helpers, rad→deg conversion
+│  ├─ chainStore.ts      #   scene-metadata persistence (+ re-exports model)
+│  ├─ tool.ts            #   IK tool: Pose + Build modes (interaction API)
+│  ├─ contextMenu.ts     #   Set as IK Root / Remove from IK Chain
+│  └─ connectors.ts      #   connector-line overlay
+├─ background.ts         # registers everything on OBR.onReady
+└─ ui/
+   ├─ SidebarApp.tsx     # React sidebar (tree editor + settings)
+   └─ styles.css
+```
+
+The **pure** layers (`ik/`, `model/`) contain no Owlbear SDK imports, take and
+return plain data, and are covered by unit tests. The `obr/` layer is the only
+place that talks to Owlbear.
+
+### Data model
+
+Chains are stored in scene metadata under `rodeo.wilder.ik/chains` as a map of
+`chainId → Chain`:
+
+```ts
+Chain {
+  id: string
+  rootId: string                       // token item id of the pinned root
+  nodes: Record<tokenId, {
+    parentId: string | null            // null only for the root
+    restLength: number                 // fixed length to parent (0 for root)
+  }>
+  settings: {
+    autoRotate: boolean
+    rotationOffsetDeg: number
+    showConnectors: boolean
+    playerPosable: boolean
+    nodeOverrides?: Record<tokenId, { playerMovable?: boolean; locked?: boolean }>
+  }
+}
+```
+
+The tree is just the `parentId` links; a *branch* is the path from a leaf to the
+root.
+
+### Solver
+
+[FABRIK](https://en.wikipedia.org/wiki/FABRIK) (Forward And Backward Reaching
+Inverse Kinematics) — a fast, matrix-free iterative solver ideal for 2D. Each
+pose:
+
+1. Picks the grabbed target node(s) (one per branch for group moves).
+2. Solves the path `root → target` with FABRIK, pinning the root and preserving
+   rest lengths.
+3. Rigidly carries everything beyond the target (translation + the target's
+   incoming-bone rotation): `newPos = newTarget + R(Δθ)·(oldPos − oldTarget)`.
+4. If auto-rotate is on, sets each token's rotation from its bone angle.
+
+Dragging the root instead applies a rigid translation to the whole tree.
+
+## Development
 
 ```bash
 npm install
-npm run dev        # serve on http://localhost:5173
+npm run dev        # Vite dev server on http://localhost:5173
 ```
 
-In Owlbear Rodeo → **Extensions → Add Custom Extension**, paste the dev
-manifest URL: `http://localhost:5173/manifest.json`.
+In Owlbear Rodeo → **Extensions → Add Custom Extension**, paste the dev manifest
+URL: `http://localhost:5173/manifest.json`.
 
-## Verify
+Scripts:
 
-```bash
-npm test           # pure IK unit tests (vitest)
-npm run typecheck  # tsc --noEmit
-npm run build      # typecheck + production build to dist/
-```
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Start the Vite dev server. |
+| `npm test` | Run the pure unit tests (Vitest). |
+| `npm run typecheck` | `tsc --noEmit`. |
+| `npm run build` | Typecheck, then build the static site to `dist/`. |
+| `npm run preview` | Preview the production build. |
 
-Then manually in an Owlbear room: build a 3–4 token chain in Build mode, switch
-to Pose mode, and confirm the chain flexes smoothly with the root pinned.
-Reload the scene to confirm persistence; open a second browser as a player to
-confirm sync and permissions.
+## Testing & verification
 
-## Deploy
+- **Unit tests** (`npm test`) cover the pure layers: FABRIK keeps the root
+  pinned and rest lengths within tolerance, unreachable targets straighten,
+  group carry preserves cluster offsets, branches solve independently, and the
+  chain-model ops (create/link/remove/prune/recalibrate/overrides) behave and
+  never mutate their inputs.
+- **In-Owlbear check:** build a 3–4 token chain in Build mode, switch to Pose,
+  and confirm smooth flex with the root pinned. Reload the scene to confirm
+  persistence; open a second browser as a player to confirm sync and that
+  permissions block player drags on locked/anchor nodes.
 
-`npm run build` produces a static `dist/`. Host it (GitHub Pages, Netlify, …)
-and share `<host>/manifest.json`. Ensure the manifest's action/background URLs
-resolve on the final host.
+## Deployment
+
+`npm run build` produces a static `dist/` (including `manifest.json` and icons).
+Host it anywhere static (GitHub Pages, Netlify, Cloudflare Pages, …) and share
+`<host>/manifest.json`. Make sure the manifest's `action.popover`,
+`background_url`, and `icon` paths resolve on the final host.
+
+## Design decisions & non-goals
+
+- **Root pinned during IK.** Dragging the root translates; dragging anything else
+  solves. This keeps posing predictable.
+- **Branches split at the root and solve independently.** Simple and stable;
+  moving one claw never disturbs a sibling. Group-move handles the "move a whole
+  cluster" case without shared-joint math.
+- **Rigid bones, no joint-angle limits.** v1 favours stability and predictability
+  over anatomical constraints — joints rotate freely and the GM eyeballs the
+  pose. Angle limits are intentionally out of scope for now (see Roadmap).
+- **Pose lives in a dedicated tool.** Real-time solving needs a custom tool's
+  drag events; the trade-off is selecting the IK tool to pose.
+
+## Roadmap
+
+Ideas for future iterations:
+
+- Optional per-joint **angle constraints** (e.g. a knee that bends one way).
+- Shared intermediate **sub-bases** (true multi-effector FABRIK) for forks that
+  aren't at the root.
+- Chain **templates / presets** and copy-paste of rigs between creatures.
+- Undo integration and richer in-canvas handles.

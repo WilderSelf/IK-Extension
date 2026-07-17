@@ -1,5 +1,17 @@
 import type { Chain, ChainNode } from "../types";
 
+/** Nodes in depth-first order from the root, each with its depth. */
+export function orderedNodes(chain: Chain): { id: string; depth: number }[] {
+  const out: { id: string; depth: number }[] = [];
+  const visit = (id: string, depth: number) => {
+    if (!(id in chain.nodes)) return;
+    out.push({ id, depth });
+    for (const child of childrenOf(chain, id)) visit(child, depth + 1);
+  };
+  if (chain.rootId in chain.nodes) visit(chain.rootId, 0);
+  return out;
+}
+
 /** Direct children of a node (token ids whose parentId === nodeId). */
 export function childrenOf(chain: Chain, nodeId: string): string[] {
   const out: string[] = [];

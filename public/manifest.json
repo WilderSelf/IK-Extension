@@ -1,0 +1,16 @@
+{
+  "name": "IK Chains",
+  "version": "0.1.0",
+  "manifest_version": 1,
+  "author": "WilderSelf",
+  "description": "Rig tokens into 2D inverse-kinematics chains and pose them like articulated limbs.",
+  "icon": "/icon.svg",
+  "action": {
+    "title": "IK Chains",
+    "icon": "/icon.svg",
+    "popover": "/",
+    "height": 500,
+    "width": 340
+  },
+  "background_url": "/background.html"
+}

@@ -37,6 +37,11 @@ export function solveChain(
   const total = restLengths.reduce((s, l) => s + l, 0);
   const p = points.map((pt) => ({ ...pt }));
 
+  // A chain with no length (all-zero rest, e.g. coincident tokens captured at
+  // build time) has nothing to solve — return it unchanged rather than collapse
+  // every node onto the root via the straighten path below.
+  if (total <= 0) return p;
+
   // Unreachable target: point the whole chain straight at it.
   if (dist(root, target) >= total) {
     const d = dir(root, target);

@@ -53,6 +53,16 @@ describe("solveChain (FABRIK)", () => {
     solveChain(pts, rest, { x: 5, y: 5 });
     expect(pts).toEqual(copy);
   });
+
+  it("leaves a zero-length chain (all-zero rest) untouched", () => {
+    const coincident = [
+      { x: 5, y: 5 },
+      { x: 5, y: 5 },
+      { x: 5, y: 5 },
+    ];
+    const out = solveChain(coincident, [0, 0], { x: 100, y: 100 });
+    expect(out).toEqual(coincident); // no collapse-to-root / NaN
+  });
 });
 
 // body -> a1 -> a2 (branch A), body -> b1 (branch B)
@@ -95,6 +105,38 @@ describe("tree utils", () => {
     const depthById = Object.fromEntries(ordered.map((n) => [n.id, n.depth]));
     expect(depthById).toEqual({ body: 0, a1: 1, a2: 2, b1: 1 });
   });
+
+  it("handles large chains without O(n^2) blow-up or stack overflow", () => {
+    // A 2000-node linear chain: the old recursive/childrenOf-per-node code would
+    // both blow the stack and take quadratic time. This must stay fast and flat.
+    const n = 2000;
+    const nodes: Chain["nodes"] = { root: { parentId: null, restLength: 0 } };
+    let prev = "root";
+    for (let i = 1; i < n; i++) {
+      nodes[`n${i}`] = { parentId: prev, restLength: 10 };
+      prev = `n${i}`;
+    }
+    const deep: Chain = { id: "deep", rootId: "root", nodes, settings: defaultSettings() };
+    expect(orderedNodes(deep)).toHaveLength(n);
+    expect(subtree(deep, "root")).toHaveLength(n - 1);
+    expect(orderedNodes(deep)[n - 1]).toEqual({ id: `n${n - 1}`, depth: n - 1 });
+  });
+
+  it("does not loop forever on cyclic (corrupted) metadata", () => {
+    // parentId chain a -> c -> b -> a is a cycle. Both traversals must terminate.
+    const cyclic: Chain = {
+      id: "x",
+      rootId: "a",
+      nodes: {
+        a: { parentId: "c", restLength: 1 },
+        b: { parentId: "a", restLength: 1 },
+        c: { parentId: "b", restLength: 1 },
+      },
+      settings: defaultSettings(),
+    };
+    expect(subtree(cyclic, "a").length).toBeLessThanOrEqual(3);
+    expect(orderedNodes(cyclic).length).toBeLessThanOrEqual(3);
+  });
 });
 
 describe("pose", () => {
@@ -131,6 +173,34 @@ describe("pose", () => {
     // Grab a1; a2 (its child) must ride along, keeping |a1-a2| == 10.
     const { positions: p } = solvePose(chain, positions, { a1: { x: 0, y: 10 } });
     expect(dist(p.a1, p.a2)).toBeCloseTo(10, 5);
+  });
+
+  it("carries a sibling branch hanging off an intermediate joint", () => {
+    // body -> mid -> tip (grabbed), with `spur` also a child of mid (off-path).
+    // Posing tip moves mid; spur must ride along rigidly, not detach.
+    const branched: Chain = {
+      id: "c2",
+      rootId: "body",
+      nodes: {
+        body: { parentId: null, restLength: 0 },
+        mid: { parentId: "body", restLength: 10 },
+        tip: { parentId: "mid", restLength: 10 },
+        spur: { parentId: "mid", restLength: 8 },
+      },
+      settings: defaultSettings(),
+    };
+    const pos = {
+      body: { x: 0, y: 0 },
+      mid: { x: 10, y: 0 },
+      tip: { x: 20, y: 0 },
+      spur: { x: 10, y: 8 },
+    };
+    const { positions: p } = solvePose(branched, pos, { tip: { x: 4, y: 12 } });
+    // mid actually moved (the branch flexed)...
+    expect(dist(p.mid, pos.mid)).toBeGreaterThan(1);
+    // ...and spur rode along, keeping its bone to mid instead of stretching.
+    expect(dist(p.mid, p.spur)).toBeCloseTo(8, 5);
+    expect(dist(p.spur, pos.spur)).toBeGreaterThan(0.5);
   });
 
   it("solves two independent branches simultaneously (multi-target group move)", () => {

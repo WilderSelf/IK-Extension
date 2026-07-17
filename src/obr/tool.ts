@@ -117,7 +117,11 @@ function computePose(state: DragState, pointer: Vec2): Pose {
 function applyPose(state: DragState, pose: Pose, items: Item[]): void {
   for (const item of items) {
     const np = pose.positions[item.id];
-    if (np) item.position = { x: np.x, y: np.y };
+    // Only write finite coordinates — a NaN slipping through the solver would
+    // otherwise be persisted to the scene and wreck the token's position.
+    if (np && Number.isFinite(np.x) && Number.isFinite(np.y)) {
+      item.position = { x: np.x, y: np.y };
+    }
     if (
       state.autoRotate &&
       item.id !== state.chain.rootId &&
@@ -260,8 +264,14 @@ async function onBuildClick(_ctx: ToolContext, event: ToolEvent): Promise<void> 
     return;
   }
 
-  // Link this token to the current build cursor.
-  const parentId = buildLastNodeId ?? chains[buildChainId].rootId;
+  // Link this token to the current build cursor. If the cursor node has since
+  // vanished from the chain (deleted in the sidebar mid-build), fall back to the
+  // root so we never parent a node to a token that no longer exists.
+  const activeChain = chains[buildChainId];
+  const parentId =
+    buildLastNodeId && buildLastNodeId in activeChain.nodes
+      ? buildLastNodeId
+      : activeChain.rootId;
   const positions = await getPositions([tokenId, parentId]);
   const restLength =
     positions[tokenId] && positions[parentId]

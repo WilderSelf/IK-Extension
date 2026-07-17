@@ -7,7 +7,10 @@ export function radToObrDeg(
   rad: number,
   offsetDeg: number = DEFAULT_ROTATION_OFFSET_DEG,
 ): number {
-  const deg = (rad * 180) / Math.PI + offsetDeg;
+  // Guard against a non-finite bone angle (degenerate geometry); writing NaN to
+  // an item's rotation would corrupt the token's transform.
+  const safeRad = Number.isFinite(rad) ? rad : 0;
+  const deg = (safeRad * 180) / Math.PI + offsetDeg;
   return ((deg % 360) + 360) % 360;
 }
 

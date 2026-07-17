@@ -1,14 +1,47 @@
 import type { Chain, ChainNode } from "../types";
 
-/** Nodes in depth-first order from the root, each with its depth. */
+/**
+ * Build a parent -> children adjacency map in a single O(n) pass.
+ *
+ * Traversals that touch every node (orderedNodes, subtree) use this so they run
+ * in O(n) instead of O(n^2): calling childrenOf per node re-scans the whole node
+ * table each time, which turns a 1000-node chain into a million-entry sweep on
+ * every drag frame and sidebar render.
+ */
+export function childrenMap(chain: Chain): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  for (const [id, node] of Object.entries(chain.nodes)) {
+    if (node.parentId === null) continue;
+    const arr = map.get(node.parentId);
+    if (arr) arr.push(id);
+    else map.set(node.parentId, [id]);
+  }
+  return map;
+}
+
+/**
+ * Nodes in depth-first order from the root, each with its depth.
+ *
+ * Iterative (not recursive) so a deep linear chain cannot overflow the stack,
+ * and guarded against cycles in case the persisted metadata is corrupted.
+ */
 export function orderedNodes(chain: Chain): { id: string; depth: number }[] {
+  if (!(chain.rootId in chain.nodes)) return [];
+  const kids = childrenMap(chain);
   const out: { id: string; depth: number }[] = [];
-  const visit = (id: string, depth: number) => {
-    if (!(id in chain.nodes)) return;
+  const seen = new Set<string>();
+  const stack: { id: string; depth: number }[] = [{ id: chain.rootId, depth: 0 }];
+  while (stack.length) {
+    const { id, depth } = stack.pop()!;
+    if (seen.has(id) || !(id in chain.nodes)) continue;
+    seen.add(id);
     out.push({ id, depth });
-    for (const child of childrenOf(chain, id)) visit(child, depth + 1);
-  };
-  if (chain.rootId in chain.nodes) visit(chain.rootId, 0);
+    const ch = kids.get(id);
+    if (ch) {
+      // Push in reverse so the first child is processed first (stable order).
+      for (let i = ch.length - 1; i >= 0; i--) stack.push({ id: ch[i], depth: depth + 1 });
+    }
+  }
   return out;
 }
 
@@ -38,12 +71,17 @@ export function branchPath(chain: Chain, nodeId: string): string[] {
 
 /** All descendants of `nodeId` (excluding it), i.e. the nodes "beyond" it. */
 export function subtree(chain: Chain, nodeId: string): string[] {
+  const kids = childrenMap(chain);
   const out: string[] = [];
-  const stack = [...childrenOf(chain, nodeId)];
+  const seen = new Set<string>();
+  const stack = [...(kids.get(nodeId) ?? [])];
   while (stack.length) {
     const id = stack.pop()!;
+    if (seen.has(id)) continue; // cycle guard for corrupted metadata
+    seen.add(id);
     out.push(id);
-    stack.push(...childrenOf(chain, id));
+    const ch = kids.get(id);
+    if (ch) for (const c of ch) stack.push(c);
   }
   return out;
 }

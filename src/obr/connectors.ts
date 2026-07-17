@@ -1,7 +1,31 @@
-import OBR, { buildLine, type Item } from "@owlbear-rodeo/sdk";
+import OBR, { buildLine, buildShape, type Item, type Vector2 } from "@owlbear-rodeo/sdk";
 import { CONNECTOR_TAG } from "./constants";
 import { getChains } from "./chainStore";
 import { getPositions } from "./scene";
+
+const HANDLE_COLOR = "#f2b134";
+const JOINT_DIAMETER = 16;
+const ROOT_DIAMETER = 26;
+
+/** A circle centered on `at`, tagged so it's cleaned up with the rest of the overlay. */
+function handle(at: Vector2, diameter: number, root: boolean) {
+  return buildShape()
+    .shapeType("CIRCLE")
+    .width(diameter)
+    .height(diameter)
+    // OBR centers a CIRCLE on its position, so place it right on the joint point.
+    .position(at)
+    .fillColor(HANDLE_COLOR)
+    .fillOpacity(root ? 0.15 : 0.85)
+    .strokeColor(HANDLE_COLOR)
+    .strokeWidth(root ? 4 : 0)
+    .strokeOpacity(root ? 0.9 : 0)
+    .layer("DRAWING")
+    .locked(true)
+    .disableHit(true)
+    .metadata({ [CONNECTOR_TAG]: true })
+    .build();
+}
 
 // Serialize refreshes: concurrent runs would both read the same "existing" set
 // and both add a full set of lines, leaving duplicates. If a refresh is
@@ -58,18 +82,19 @@ async function rebuildConnectors(): Promise<void> {
   const allIds = [...new Set(active.flatMap((c) => Object.keys(c.nodes)))];
   const positions = await getPositions(allIds);
 
-  const lines = [];
+  const items: Item[] = [];
   for (const chain of active) {
+    // Bones first, then handle dots on top, then a distinct ring on the root.
     for (const [id, node] of Object.entries(chain.nodes)) {
       if (!node.parentId) continue;
       const a = positions[node.parentId];
       const b = positions[id];
       if (!a || !b) continue;
-      lines.push(
+      items.push(
         buildLine()
           .startPosition(a)
           .endPosition(b)
-          .strokeColor("#f2b134")
+          .strokeColor(HANDLE_COLOR)
           .strokeWidth(6)
           .strokeOpacity(0.7)
           .layer("DRAWING")
@@ -79,6 +104,12 @@ async function rebuildConnectors(): Promise<void> {
           .build(),
       );
     }
+    for (const id of Object.keys(chain.nodes)) {
+      const p = positions[id];
+      if (!p) continue;
+      const isRoot = id === chain.rootId;
+      items.push(handle(p, isRoot ? ROOT_DIAMETER : JOINT_DIAMETER, isRoot));
+    }
   }
-  if (lines.length) await OBR.scene.items.addItems(lines);
+  if (items.length) await OBR.scene.items.addItems(items);
 }

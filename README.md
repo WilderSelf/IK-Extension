@@ -49,8 +49,11 @@ hanging rope your players can swing.
   (per-chain, with a tunable rotation offset for art that doesn't point "up").
 - **Permissions** — GM-only by default, with per-chain and per-node overrides so
   players can, say, swing a rope whose anchor stays locked.
-- **Connector overlay** — optional lines drawn along the skeleton for building
-  and debugging (off by default).
+- **Skeleton overlay** — optional in-canvas handles: a line along each bone, a
+  dot on every joint, and a distinct ring on the root, for building and
+  debugging (off by default).
+- **Undo / redo** — step backward and forward through rig edits (build, link,
+  remove, recalibrate, settings, constraints, preset apply) from the sidebar.
 - **Presets** — save a rig's whole shape (topology, bone lengths, constraints,
   settings) as a named preset and re-apply it to another creature's tokens —
   copy-paste a spider leg or tentacle instead of rebuilding it.
@@ -123,13 +126,18 @@ item permissions.
 
 ## Sidebar reference
 
+At the top of the panel, **↶ Undo** / **↷ Redo** step through rig edits (build,
+link, remove, recalibrate, settings, constraints, preset apply). History is
+per-sidebar-session; it isn't shared between clients and resets when the sidebar
+is reopened.
+
 Each chain card exposes:
 
 | Control | Effect |
 | --- | --- |
 | **Auto-rotate tokens** | Rotate each token to face down its bone as it flexes. |
 | **Rotation offset (°)** | Added to the computed bone angle. Default `90` (art points "up"); change if a token's forward is a different direction. |
-| **Show connector lines** | Draw a debug line along each bone (non-interactive). |
+| **Show connector lines** | Draw the skeleton overlay: a line along each bone, a dot on every joint, and a ring on the root (non-interactive). |
 | **Players may pose** | Allow non-GM players to pose this chain. |
 | **Recalibrate** | Re-measure current token spacing as the new rest lengths (use after rearranging tokens by hand). |
 | **Save as preset** | Name the current rig and store its shape as a reusable preset (see below). |
@@ -209,7 +217,8 @@ src/
 ├─ types.ts              # Chain / ChainNode / ChainSettings, metadata keys
 ├─ model/
 │  ├─ chains.ts          # PURE chain-model ops (create/add/remove/prune/…)
-│  └─ templates.ts       # PURE preset ops (chain <-> token-agnostic template)
+│  ├─ templates.ts       # PURE preset ops (chain <-> token-agnostic template)
+│  └─ history.ts         # PURE undo/redo zipper (past/present/future)
 ├─ ik/                   # PURE solver — no Owlbear imports, fully unit-tested
 │  ├─ vec.ts             #   2D vector math
 │  ├─ fabrik.ts          #   single-chain FABRIK solver (+ bend limits)
@@ -300,9 +309,10 @@ Scripts:
   pinned and rest lengths within tolerance, unreachable targets straighten,
   group carry preserves cluster offsets, independent branches don't interfere, a
   shared unlocked sub-base is negotiated symmetrically (multi-effector) while a
-  locked one stays fixed, bend limits are clamped, presets round-trip, and the
-  chain-model ops (create/link/remove/prune/recalibrate/overrides) behave and
-  never mutate their inputs. Tree traversals are also exercised at scale
+  locked one stays fixed, bend limits are clamped, presets round-trip, the
+  undo/redo history navigates and forks correctly, and the chain-model ops
+  (create/link/remove/prune/recalibrate/overrides) behave and never mutate their
+  inputs. Tree traversals are also exercised at scale
   (thousand-node chains stay linear-time, no stack overflow) and against
   deliberately cyclic metadata (traversals terminate instead of hanging).
 - **In-Owlbear check:** build a 3–4 token chain in Build mode, switch to Pose,
@@ -345,11 +355,18 @@ Host it anywhere static (GitHub Pages, Netlify, Cloudflare Pages, …) and share
   in-memory copy of the chain map to avoid read-after-write races on OBR's async
   metadata. Concurrent sidebar edits during an active build session may be
   overwritten on the next build click; finish building before editing.
+- **Undo covers rig structure, not poses.** History snapshots the chain map
+  (topology, bones, constraints, settings), which lives in scene metadata — not
+  the per-drag token positions written through the interaction API. It's a
+  per-sidebar-session stack (ephemeral, not shared between clients), which keeps
+  it simple and race-free; posing is undone with Owlbear's own token undo.
 
 ## Roadmap
 
 Ideas for future iterations:
 
-- Undo integration and richer in-canvas handles.
 - Angle constraints for the multi-effector (joint) solve (single-chain bend
   limits are already enforced; forks currently negotiate without them).
+- Undo/redo for token **poses** (today's history covers rig structure and
+  settings, not the per-drag token positions) and cross-client shared history.
+- Draggable (not just visual) in-canvas handles.

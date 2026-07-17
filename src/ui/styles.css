@@ -236,3 +236,22 @@ button:hover {
   gap: 6px;
   flex: none;
 }
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.undo-redo {
+  display: inline-flex;
+  gap: 6px;
+  flex: none;
+}
+
+.undo-redo button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}

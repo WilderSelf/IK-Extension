@@ -1,5 +1,5 @@
 import OBR from "@owlbear-rodeo/sdk";
-import { CTX_REMOVE, CTX_SET_ROOT } from "./constants";
+import { CTX_REMOVE, CTX_SET_ROOT, asset } from "./constants";
 import {
   createChain,
   findChainForToken,
@@ -13,7 +13,7 @@ export async function setupContextMenu(): Promise<void> {
     id: CTX_SET_ROOT,
     icons: [
       {
-        icon: "/icon.svg",
+        icon: asset("icon.svg"),
         label: "Set as IK Root",
         filter: {
           min: 1,
@@ -40,7 +40,7 @@ export async function setupContextMenu(): Promise<void> {
     id: CTX_REMOVE,
     icons: [
       {
-        icon: "/icon.svg",
+        icon: asset("icon.svg"),
         label: "Remove from IK Chain",
         filter: {
           min: 1,

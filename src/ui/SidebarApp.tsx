@@ -21,20 +21,36 @@ export function SidebarApp() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
+    let mounted = true;
     let unsub = () => {};
     OBR.onReady(() => {
+      // The component may have unmounted while onReady was pending; don't set
+      // state on a dead component and make sure the subscription is cleaned up.
+      if (!mounted) return;
       setReady(true);
-      getChains().then(setChains).catch(() => {});
+      getChains().then((c) => mounted && setChains(c)).catch(() => {});
       unsub = onChainsChange(setChains);
     });
-    return () => unsub();
+    return () => {
+      mounted = false;
+      unsub();
+    };
   }, []);
 
   // Refresh token display names whenever the set of chained tokens changes.
   useEffect(() => {
     const ids = Object.values(chains).flatMap((c) => Object.keys(c.nodes));
-    if (ids.length === 0) return;
-    getItemNames(ids).then(setNames).catch(() => {});
+    if (ids.length === 0) {
+      setNames({}); // clear stale names once the last chain is gone
+      return;
+    }
+    let cancelled = false;
+    getItemNames(ids)
+      .then((n) => !cancelled && setNames(n))
+      .catch(() => {});
+    return () => {
+      cancelled = true; // ignore an out-of-order resolution from a prior render
+    };
   }, [chains]);
 
   async function patch(next: ChainMap) {

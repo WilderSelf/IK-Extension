@@ -27,6 +27,21 @@ describe("chain model", () => {
     expect(m[id].nodes.body.parentId).toBeNull();
   });
 
+  it("never reuses a chain id after deletion (no silent overwrite)", () => {
+    // Two tokens sharing the same 6-char id prefix, so the readable part of the
+    // generated chain id is identical; only the numeric suffix separates them.
+    const [m, id1] = createChain({}, "abcdef-one");
+    const [m2, id2] = createChain(m, "abcdef-two");
+    expect(id2).not.toBe(id1);
+    // Delete the first chain, then create a third. The old count-based suffix
+    // would collide with id2 and clobber it; the ids must all stay distinct.
+    const afterDelete = deleteChain(m2, id1);
+    const [m3, id3] = createChain(afterDelete, "abcdef-three");
+    expect(id3).not.toBe(id2);
+    expect(m3[id2]).toBeDefined(); // the surviving chain was not overwritten
+    expect(Object.keys(m3)).toHaveLength(2);
+  });
+
   it("finds the chain for a token", () => {
     const m = build();
     expect(findChainForToken(m, "a2")?.rootId).toBe("body");
@@ -53,6 +68,14 @@ describe("chain model", () => {
     expect(chain.nodes.a2.parentId).toBe("body");
     // root deleted -> chain removed entirely
     expect(Object.keys(pruneMissing(m, new Set(["a1", "a2", "b1"])))).toHaveLength(0);
+  });
+
+  it("pruneMissing removes EVERY missing token in a chain, not just the last", () => {
+    // a1 and b1 both deleted at once; a2 reparents to body. a1 must not linger.
+    const pruned = pruneMissing(build(), new Set(["body", "a2"]));
+    const chain = Object.values(pruned)[0];
+    expect(Object.keys(chain.nodes).sort()).toEqual(["a2", "body"]);
+    expect(chain.nodes.a2.parentId).toBe("body");
   });
 
   it("pruneMissing keeps a valid lone-root (in-progress) chain", () => {

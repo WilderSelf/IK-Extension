@@ -23,7 +23,13 @@ export function findChainForToken(
 /** Create a new chain rooted at `tokenId`. Returns [map, chainId]. */
 export function createChain(chains: ChainMap, tokenId: string): [ChainMap, string] {
   const next = clone(chains);
-  const id = `chain_${tokenId.slice(0, 6)}_${Object.keys(chains).length + 1}`;
+  // Derive a readable id, but keep bumping the suffix until it is actually free.
+  // A plain `count + 1` reuses suffixes after a chain is deleted, so a token
+  // whose id shares the same 6-char prefix could silently overwrite a live chain.
+  const prefix = `chain_${tokenId.slice(0, 6)}`;
+  let n = Object.keys(chains).length + 1;
+  let id = `${prefix}_${n}`;
+  while (id in next) id = `${prefix}_${++n}`;
   next[id] = {
     id,
     rootId: tokenId,
@@ -78,17 +84,17 @@ export function removeToken(chains: ChainMap, tokenId: string): ChainMap {
 export function pruneMissing(chains: ChainMap, existingIds: Set<string>): ChainMap {
   const next = clone(chains);
   for (const [chainId, chain] of Object.entries(next)) {
+    // Fold removals cumulatively: each call must build on the previous result,
+    // not re-derive from the original `chain`, or only the LAST missing token in
+    // a chain gets pruned and the earlier ones linger as dangling references.
+    let c = chain;
     for (const tokenId of Object.keys(chain.nodes)) {
-      if (!existingIds.has(tokenId)) {
-        next[chainId] = removeTokenFromChain(chain, tokenId);
-      }
+      if (!existingIds.has(tokenId)) c = removeTokenFromChain(c, tokenId);
     }
-    const c = next[chainId];
     // Delete only when the root itself is gone (covers the empty case too). A
     // lone root with no children yet is a valid in-progress chain and is kept.
-    if (!c || !c.nodes[c.rootId]) {
-      delete next[chainId];
-    }
+    if (!c.nodes[c.rootId]) delete next[chainId];
+    else next[chainId] = c;
   }
   return next;
 }

@@ -35,6 +35,12 @@ export async function refreshConnectors(): Promise<void> {
 }
 
 async function rebuildConnectors(): Promise<void> {
+  // Connector lines are shared scene items. If every client rebuilt them, they
+  // would each read an empty "existing" set and each add a full set (duplicates),
+  // and non-GM players usually can't delete/add these items anyway. Let a single
+  // client — the GM — own the overlay.
+  if ((await OBR.player.getRole()) !== "GM") return;
+
   const chains = await getChains();
 
   const existing = await OBR.scene.items.getItems(
@@ -47,10 +53,13 @@ async function rebuildConnectors(): Promise<void> {
   const active = Object.values(chains).filter((c) => c.settings.showConnectors);
   if (active.length === 0) return;
 
+  // Fetch every chained token's position in ONE scene scan. Doing it per-chain
+  // meant N full getItems sweeps for N active chains (50 chains -> 50 scans).
+  const allIds = [...new Set(active.flatMap((c) => Object.keys(c.nodes)))];
+  const positions = await getPositions(allIds);
+
   const lines = [];
   for (const chain of active) {
-    const ids = Object.keys(chain.nodes);
-    const positions = await getPositions(ids);
     for (const [id, node] of Object.entries(chain.nodes)) {
       if (!node.parentId) continue;
       const a = positions[node.parentId];

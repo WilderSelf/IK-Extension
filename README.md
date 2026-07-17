@@ -255,7 +255,9 @@ Scripts:
   pinned and rest lengths within tolerance, unreachable targets straighten,
   group carry preserves cluster offsets, branches solve independently, and the
   chain-model ops (create/link/remove/prune/recalibrate/overrides) behave and
-  never mutate their inputs.
+  never mutate their inputs. Tree traversals are also exercised at scale
+  (thousand-node chains stay linear-time, no stack overflow) and against
+  deliberately cyclic metadata (traversals terminate instead of hanging).
 - **In-Owlbear check:** build a 3–4 token chain in Build mode, switch to Pose,
   and confirm smooth flex with the root pinned. Reload the scene to confirm
   persistence; open a second browser as a player to confirm sync and that
@@ -280,6 +282,14 @@ Host it anywhere static (GitHub Pages, Netlify, Cloudflare Pages, …) and share
   pose. Angle limits are intentionally out of scope for now (see Roadmap).
 - **Pose lives in a dedicated tool.** Real-time solving needs a custom tool's
   drag events; the trade-off is selecting the IK tool to pose.
+- **"Lock" means ungrabbable, not immovable.** A locked node can't be grabbed as
+  an IK target, but it still moves when it lies on the path a *different* grabbed
+  node solves (it's part of that limb). Pinning a mid-chain joint so solves route
+  around it would need sub-base FABRIK (see Roadmap).
+- **Build mode is single-writer, last-write-wins.** A build session keeps an
+  in-memory copy of the chain map to avoid read-after-write races on OBR's async
+  metadata. Concurrent sidebar edits during an active build session may be
+  overwritten on the next build click; finish building before editing.
 
 ## Roadmap
 

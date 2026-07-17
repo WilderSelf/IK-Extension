@@ -74,7 +74,16 @@ export function solvePose(
     if (pts.some((p) => !p)) continue;
 
     const rest = solvePath.slice(1).map((id) => chain.nodes[id].restLength);
-    const solved = solveChain(pts, rest, targetPos, opts);
+    // Bend limits aligned with `pts`: a joint needs a reference bone above it,
+    // so only nodes at sub-path index >= 2 can be constrained. Degrees in the
+    // model -> radians for the solver.
+    const constraints = solvePath.map((id, i) => {
+      if (i < 2) return undefined;
+      const c = chain.nodes[id].constraint;
+      if (!c) return undefined;
+      return { min: (c.minDeg * Math.PI) / 180, max: (c.maxDeg * Math.PI) / 180 };
+    });
+    const solved = solveChain(pts, rest, targetPos, { ...opts, constraints });
     solvePath.forEach((id, i) => {
       out[id] = solved[i];
     });

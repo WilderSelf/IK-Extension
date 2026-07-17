@@ -12,6 +12,7 @@ export {
   recalibrate,
   updateSettings,
   setNodeOverride,
+  setNodeConstraint,
 } from "../model/chains";
 
 // ---- Persistence (scene metadata) -----------------------------------------

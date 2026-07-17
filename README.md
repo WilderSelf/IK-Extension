@@ -43,6 +43,8 @@ hanging rope your players can swing.
   as a rigid group; the chain back to the root re-solves to follow.
 - **Rigid bones** — segment lengths are captured when you build the chain and
   preserved while posing, with a one-click **Recalibrate** to re-measure.
+- **Bend limits** — optional per-joint angle constraints (e.g. a knee that only
+  bends one way), enforced by the solver while bone lengths stay fixed.
 - **Auto-rotate** — tokens rotate to face down their bone as the limb flexes
   (per-chain, with a tunable rotation offset for art that doesn't point "up").
 - **Permissions** — GM-only by default, with per-chain and per-node overrides so
@@ -127,8 +129,25 @@ Each chain card exposes:
 | **Show connector lines** | Draw a debug line along each bone (non-interactive). |
 | **Players may pose** | Allow non-GM players to pose this chain. |
 | **Recalibrate** | Re-measure current token spacing as the new rest lengths (use after rearranging tokens by hand). |
-| **Tokens** (tree) | The chain's nodes, indented by depth. Per node: `player` / `lock` toggles and `✕` to remove (removing the root deletes the chain; removing an interior node re-parents its children). |
+| **Tokens** (tree) | The chain's nodes, indented by depth. Per node: `player` / `lock` toggles, a `bend` limit (where applicable), and `✕` to remove (removing the root deletes the chain; removing an interior node re-parents its children). |
 | **Delete** | Remove the whole chain. |
+
+### Bend limits (angle constraints)
+
+Each joint can be capped so it only flexes within a range — a knee that bends
+one way, an elbow that can't hyperextend. Tick **bend** on a node to reveal
+`min°` / `max°`, measured **relative to the parent bone**:
+
+- `0` means "in line with the incoming bone" (straight).
+- The two signs are the two bend directions. Which sign is which depends on how
+  the tokens are laid out, so tune the numbers by eye and watch the limb.
+- A range like `-160 … 0` lets the joint fold one way only; `-45 … 45` keeps it
+  roughly straight.
+
+The limit needs a reference bone above it, so it's offered only on nodes whose
+parent isn't the root (the first bone off the root, or off a locked sub-base
+pin, can point anywhere). Limits are enforced during posing and preserve bone
+lengths; an unreachable target settles into the closest pose the limits allow.
 
 ## Worked examples
 
@@ -278,9 +297,11 @@ Host it anywhere static (GitHub Pages, Netlify, Cloudflare Pages, …) and share
 - **Branches split at the root and solve independently.** Simple and stable;
   moving one claw never disturbs a sibling. Group-move handles the "move a whole
   cluster" case without shared-joint math.
-- **Rigid bones, no joint-angle limits.** v1 favours stability and predictability
-  over anatomical constraints — joints rotate freely and the GM eyeballs the
-  pose. Angle limits are intentionally out of scope for now (see Roadmap).
+- **Rigid bones; optional joint-angle limits.** Bones keep their captured length
+  always. Joints rotate freely by default, but any joint (with a reference bone
+  above it) can be given a per-node **bend limit** so it only flexes within a
+  range — enforced in the solver's forward pass, one clamp per joint per
+  iteration. Limits are opt-in so the default stays predictable.
 - **Pose lives in a dedicated tool.** Real-time solving needs a custom tool's
   drag events; the trade-off is selecting the IK tool to pose.
 - **"Lock" pins a joint.** A locked node can't be grabbed *and* acts as an anchor
@@ -298,7 +319,6 @@ Host it anywhere static (GitHub Pages, Netlify, Cloudflare Pages, …) and share
 
 Ideas for future iterations:
 
-- Optional per-joint **angle constraints** (e.g. a knee that bends one way).
 - **Multi-effector FABRIK** for forks that share an intermediate joint (locked
   joints already anchor a solve; this would let two grabbed tips negotiate a
   shared, unlocked sub-base).

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
-import type { Chain, ChainMap } from "../types";
+import type { Chain, ChainMap, JointConstraint } from "../types";
 import { DEFAULT_ROTATION_OFFSET_DEG } from "../types";
 import {
   deleteChain,
@@ -9,6 +9,7 @@ import {
   recalibrate,
   removeToken,
   saveChains,
+  setNodeConstraint,
   setNodeOverride,
   updateSettings,
 } from "../obr/chainStore";
@@ -118,6 +119,9 @@ function ChainCard({
     p: { playerMovable?: boolean; locked?: boolean },
   ) => onPatch(setNodeOverride(chains, chain.id, tokenId, p));
 
+  const onNodeConstraint = (tokenId: string, c: JointConstraint | null) =>
+    onPatch(setNodeConstraint(chains, chain.id, tokenId, c));
+
   async function onRecalibrate() {
     const ids = Object.keys(chain.nodes);
     const positions = await getPositions(ids);
@@ -169,9 +173,14 @@ function ChainCard({
         <div className="nodes-title">Tokens</div>
         {nodes.map(({ id, depth }) => {
           const isRoot = id === chain.rootId;
+          const node = chain.nodes[id];
           const ov = chain.settings.nodeOverrides?.[id] ?? {};
           // Root defaults to NOT player-movable; others follow the chain setting.
           const playerMovable = ov.playerMovable ?? !isRoot;
+          // A bend limit needs a reference bone above the joint, so it only
+          // applies where a grandparent exists (parent is not the root).
+          const canBend = !isRoot && node?.parentId != null && node.parentId !== chain.rootId;
+          const constraint = node?.constraint;
           return (
             <div className="node" key={id} style={{ paddingLeft: 8 + depth * 14 }}>
               <div className="node-main">
@@ -194,9 +203,33 @@ function ChainCard({
                     onChange={(e) => onNodeOverride(id, { locked: e.target.checked || undefined })} />
                   lock
                 </label>
+                {canBend && (
+                  <label className="mini" title="Limit this joint's bend angle">
+                    <input type="checkbox" checked={!!constraint}
+                      onChange={(e) =>
+                        onNodeConstraint(id, e.target.checked ? { minDeg: -120, maxDeg: 0 } : null)} />
+                    bend
+                  </label>
+                )}
                 <button className="mini-btn danger" title={isRoot ? "Delete whole chain" : "Remove node"}
                   onClick={() => onRemoveNode(id)}>✕</button>
               </div>
+              {canBend && constraint && (
+                <div className="node-bend">
+                  <label className="mini" title="Minimum bend relative to the parent bone">
+                    min°
+                    <input type="number" step={15} className="num-sm" value={constraint.minDeg}
+                      onChange={(e) =>
+                        onNodeConstraint(id, { ...constraint, minDeg: Number(e.target.value) || 0 })} />
+                  </label>
+                  <label className="mini" title="Maximum bend relative to the parent bone">
+                    max°
+                    <input type="number" step={15} className="num-sm" value={constraint.maxDeg}
+                      onChange={(e) =>
+                        onNodeConstraint(id, { ...constraint, maxDeg: Number(e.target.value) || 0 })} />
+                  </label>
+                </div>
+              )}
             </div>
           );
         })}

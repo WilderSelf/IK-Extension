@@ -73,6 +73,8 @@ export interface Chain {
 export type ChainMap = Record<string, Chain>;
 
 export const METADATA_KEY = "rodeo.wilder.ik/chains";
+/** Named chain templates / presets, stored in scene metadata. */
+export const TEMPLATES_KEY = "rodeo.wilder.ik/templates";
 /** Lightweight membership marker stamped onto each token's item metadata. */
 export const ITEM_MARKER_KEY = "rodeo.wilder.ik/member";
 

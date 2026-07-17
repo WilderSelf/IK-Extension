@@ -2,39 +2,53 @@ import { useEffect, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
 import type { Chain, ChainMap, JointConstraint } from "../types";
 import { DEFAULT_ROTATION_OFFSET_DEG } from "../types";
+import type { TemplateMap } from "../model/templates";
 import {
   deleteChain,
+  deleteTemplate,
   getChains,
+  getTemplates,
+  instantiateTemplate,
   onChainsChange,
+  onTemplatesChange,
   recalibrate,
   removeToken,
   saveChains,
+  saveTemplate,
+  saveTemplates,
   setNodeConstraint,
   setNodeOverride,
+  toTemplate,
   updateSettings,
 } from "../obr/chainStore";
-import { getItemNames, getPositions } from "../obr/scene";
+import { getItemNames, getPositions, getSelection } from "../obr/scene";
 import { orderedNodes } from "../ik/tree";
 
 export function SidebarApp() {
   const [chains, setChains] = useState<ChainMap>({});
+  const [templates, setTemplates] = useState<TemplateMap>({});
   const [names, setNames] = useState<Record<string, string>>({});
+  const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let mounted = true;
-    let unsub = () => {};
+    let unsubChains = () => {};
+    let unsubTemplates = () => {};
     OBR.onReady(() => {
       // The component may have unmounted while onReady was pending; don't set
-      // state on a dead component and make sure the subscription is cleaned up.
+      // state on a dead component and make sure the subscriptions are cleaned up.
       if (!mounted) return;
       setReady(true);
       getChains().then((c) => mounted && setChains(c)).catch(() => {});
-      unsub = onChainsChange(setChains);
+      getTemplates().then((t) => mounted && setTemplates(t)).catch(() => {});
+      unsubChains = onChainsChange(setChains);
+      unsubTemplates = onTemplatesChange(setTemplates);
     });
     return () => {
       mounted = false;
-      unsub();
+      unsubChains();
+      unsubTemplates();
     };
   }, []);
 
@@ -59,7 +73,42 @@ export function SidebarApp() {
     await saveChains(next);
   }
 
+  async function patchTemplates(next: TemplateMap) {
+    setTemplates(next);
+    await saveTemplates(next);
+  }
+
+  const onSavePreset = async (chain: Chain, name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    await patchTemplates(saveTemplate(templates, trimmed, toTemplate(chain)));
+    setNotice(`Saved preset "${trimmed}".`);
+  };
+
+  const onDeletePreset = (name: string) => patchTemplates(deleteTemplate(templates, name));
+
+  const onApplyPreset = async (name: string) => {
+    const template = templates[name];
+    if (!template) return;
+    const selection = await getSelection();
+    const need = template.nodes.length;
+    if (selection.length !== need) {
+      setNotice(
+        `Select ${need} token${need === 1 ? "" : "s"} (root first, outward) to apply "${name}" — ${selection.length} selected.`,
+      );
+      return;
+    }
+    const result = instantiateTemplate(template, selection, chains);
+    if (!result) {
+      setNotice(`Couldn't apply "${name}" — the selection has duplicates.`);
+      return;
+    }
+    await patch(result[0]);
+    setNotice(`Applied "${name}" to the selection.`);
+  };
+
   const list = Object.values(chains);
+  const presetNames = Object.keys(templates).sort();
 
   return (
     <div>
@@ -77,15 +126,44 @@ export function SidebarApp() {
       {!ready && <p className="empty">Connecting to Owlbear Rodeo…</p>}
       {ready && list.length === 0 && <p className="empty">No chains yet.</p>}
 
+      {notice && (
+        <p className="notice" role="status" onClick={() => setNotice("")}>
+          {notice}
+        </p>
+      )}
+
       {list.map((chain) => (
         <ChainCard
           key={chain.id}
           chain={chain}
           names={names}
           onPatch={patch}
+          onSavePreset={onSavePreset}
           chains={chains}
         />
       ))}
+
+      {presetNames.length > 0 && (
+        <div className="presets">
+          <div className="presets-title">Presets</div>
+          <p className="hint">
+            Reuse a rig on another creature: select its tokens (root first, then
+            outward in the same order) and apply.
+          </p>
+          {presetNames.map((name) => (
+            <div className="row preset-row" key={name}>
+              <span className="preset-name" title={`${templates[name].nodes.length} nodes`}>
+                {name} <span className="chain-sub">({templates[name].nodes.length})</span>
+              </span>
+              <span className="preset-actions">
+                <button onClick={() => onApplyPreset(name)}>Apply</button>
+                <button className="mini-btn danger" title="Delete preset"
+                  onClick={() => onDeletePreset(name)}>✕</button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -95,12 +173,15 @@ function ChainCard({
   chains,
   names,
   onPatch,
+  onSavePreset,
 }: {
   chain: Chain;
   chains: ChainMap;
   names: Record<string, string>;
   onPatch: (next: ChainMap) => Promise<void>;
+  onSavePreset: (chain: Chain, name: string) => void | Promise<void>;
 }) {
+  const [presetName, setPresetName] = useState("");
   const nodes = orderedNodes(chain);
   const offset = chain.settings.rotationOffsetDeg ?? DEFAULT_ROTATION_OFFSET_DEG;
 
@@ -167,6 +248,15 @@ function ChainCard({
       <div className="row">
         <span className="chain-sub">Re-measure rest lengths from current spacing</span>
         <button onClick={onRecalibrate}>Recalibrate</button>
+      </div>
+      <div className="row">
+        <input className="preset-input" type="text" placeholder="Preset name"
+          value={presetName}
+          onChange={(e) => setPresetName(e.target.value)} />
+        <button disabled={!presetName.trim()}
+          onClick={() => { onSavePreset(chain, presetName); setPresetName(""); }}>
+          Save as preset
+        </button>
       </div>
 
       <div className="nodes">

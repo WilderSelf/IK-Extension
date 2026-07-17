@@ -184,3 +184,55 @@ button:hover {
   font-size: 12px;
   line-height: 1.2;
 }
+
+.notice {
+  font-size: 12px;
+  line-height: 1.4;
+  margin: 0 0 10px;
+  padding: 6px 8px;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  border-radius: 6px;
+  background: rgba(128, 128, 128, 0.12);
+  cursor: pointer;
+}
+
+.preset-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.presets {
+  margin-top: 12px;
+  border-top: 1px solid rgba(128, 128, 128, 0.25);
+  padding-top: 8px;
+}
+
+.presets-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.preset-row {
+  gap: 8px;
+}
+
+.preset-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.preset-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}

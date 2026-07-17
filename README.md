@@ -51,9 +51,12 @@ hanging rope your players can swing.
   players can, say, swing a rope whose anchor stays locked.
 - **Connector overlay** — optional lines drawn along the skeleton for building
   and debugging (off by default).
-- **Persistence & sync** — chains live in the scene's metadata, so they survive
-  reloads and sync to every connected client automatically. Deleting a token
-  prunes it from its chain.
+- **Presets** — save a rig's whole shape (topology, bone lengths, constraints,
+  settings) as a named preset and re-apply it to another creature's tokens —
+  copy-paste a spider leg or tentacle instead of rebuilding it.
+- **Persistence & sync** — chains and presets live in the scene's metadata, so
+  they survive reloads and sync to every connected client automatically.
+  Deleting a token prunes it from its chain.
 
 ## Quick start
 
@@ -129,8 +132,12 @@ Each chain card exposes:
 | **Show connector lines** | Draw a debug line along each bone (non-interactive). |
 | **Players may pose** | Allow non-GM players to pose this chain. |
 | **Recalibrate** | Re-measure current token spacing as the new rest lengths (use after rearranging tokens by hand). |
+| **Save as preset** | Name the current rig and store its shape as a reusable preset (see below). |
 | **Tokens** (tree) | The chain's nodes, indented by depth. Per node: `player` / `lock` toggles, a `bend` limit (where applicable), and `✕` to remove (removing the root deletes the chain; removing an interior node re-parents its children). |
 | **Delete** | Remove the whole chain. |
+
+Below the chain cards, a **Presets** panel lists every saved preset with an
+**Apply** and a delete (`✕`) button.
 
 ### Bend limits (angle constraints)
 
@@ -148,6 +155,22 @@ The limit needs a reference bone above it, so it's offered only on nodes whose
 parent isn't the root (the first bone off the root, or off a locked sub-base
 pin, can point anywhere). Limits are enforced during posing and preserve bone
 lengths; an unreachable target settles into the closest pose the limits allow.
+
+### Presets (copy-paste a rig)
+
+A preset stores a chain's *shape* — topology, rest lengths, per-joint bend
+limits, per-node locks/permissions, and chain settings — with the token ids
+stripped out, so it can be stamped onto a different creature:
+
+1. Build and tune a rig once (say, one spider leg).
+2. On its chain card, type a name and click **Save as preset**.
+3. On the target creature, **select the tokens** that should become the new
+   rig — **root first, then outward in the same order** you'd build them.
+4. In the **Presets** panel, click **Apply**. The selection count must match the
+   preset's node count; the mapping follows selection order.
+
+Presets are saved in the scene, so everyone in the room shares the library and
+they persist across reloads.
 
 ## Worked examples
 
@@ -185,7 +208,8 @@ Two entry points, coordinated purely through Owlbear scene metadata:
 src/
 ├─ types.ts              # Chain / ChainNode / ChainSettings, metadata keys
 ├─ model/
-│  └─ chains.ts          # PURE chain-model ops (create/add/remove/prune/…)
+│  ├─ chains.ts          # PURE chain-model ops (create/add/remove/prune/…)
+│  └─ templates.ts       # PURE preset ops (chain <-> token-agnostic template)
 ├─ ik/                   # PURE solver — no Owlbear imports, fully unit-tested
 │  ├─ vec.ts             #   2D vector math
 │  ├─ fabrik.ts          #   FABRIK solver
@@ -322,5 +346,4 @@ Ideas for future iterations:
 - **Multi-effector FABRIK** for forks that share an intermediate joint (locked
   joints already anchor a solve; this would let two grabbed tips negotiate a
   shared, unlocked sub-base).
-- Chain **templates / presets** and copy-paste of rigs between creatures.
 - Undo integration and richer in-canvas handles.

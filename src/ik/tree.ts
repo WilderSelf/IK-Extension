@@ -86,6 +86,22 @@ export function subtree(chain: Chain, nodeId: string): string[] {
   return out;
 }
 
+/**
+ * Deepest node that is an ancestor of (or equal to) both `a` and `b`. Returns
+ * the chain root in the normal case, or null if the two aren't connected (should
+ * not happen within one chain). Used to detect forks where two grabbed tips
+ * share an intermediate joint.
+ */
+export function lowestCommonAncestor(chain: Chain, a: string, b: string): string | null {
+  const inB = new Set(branchPath(chain, b));
+  let lca: string | null = null;
+  // branchPath(a) is ordered root -> a, so the last shared id is the deepest.
+  for (const id of branchPath(chain, a)) {
+    if (inB.has(id)) lca = id;
+  }
+  return lca;
+}
+
 /** True if `ancestorId` is a strict ancestor of `nodeId`. */
 export function isAncestor(chain: Chain, ancestorId: string, nodeId: string): boolean {
   let cur = chain.nodes[nodeId]?.parentId ?? null;

@@ -36,6 +36,7 @@ interface DragState {
   update: InteractionUpdate;
   stop: InteractionStop;
   autoRotate: boolean;
+  rotationOffsetDeg: number;
 }
 
 let drag: DragState | null = null;
@@ -112,7 +113,7 @@ function applyPose(state: DragState, pose: Pose, items: Item[]): void {
       item.id !== state.chain.rootId &&
       pose.rotations[item.id] !== undefined
     ) {
-      item.rotation = radToObrDeg(pose.rotations[item.id]);
+      item.rotation = radToObrDeg(pose.rotations[item.id], state.rotationOffsetDeg);
     }
   }
 }
@@ -163,6 +164,7 @@ async function onPoseDragStart(_ctx: ToolContext, event: ToolEvent): Promise<voi
     update,
     stop,
     autoRotate: chain.settings.autoRotate,
+    rotationOffsetDeg: chain.settings.rotationOffsetDeg ?? 90,
   };
 }
 

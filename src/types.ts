@@ -29,6 +29,12 @@ export interface ChainNode {
 export interface ChainSettings {
   /** Rotate each token to face along its bone as the chain flexes. */
   autoRotate: boolean;
+  /**
+   * Degrees added when converting a bone angle to an OBR rotation. Tokens
+   * conventionally point "up", so the default is 90. Tune per art if a token's
+   * "forward" is not up.
+   */
+  rotationOffsetDeg: number;
   /** Draw connector lines between linked tokens. */
   showConnectors: boolean;
   /** Whether non-GM players may pose this chain at all. */
@@ -53,9 +59,12 @@ export const METADATA_KEY = "rodeo.wilder.ik/chains";
 /** Lightweight membership marker stamped onto each token's item metadata. */
 export const ITEM_MARKER_KEY = "rodeo.wilder.ik/member";
 
+export const DEFAULT_ROTATION_OFFSET_DEG = 90;
+
 export function defaultSettings(): ChainSettings {
   return {
     autoRotate: true,
+    rotationOffsetDeg: DEFAULT_ROTATION_OFFSET_DEG,
     showConnectors: false,
     playerPosable: false,
     nodeOverrides: {},

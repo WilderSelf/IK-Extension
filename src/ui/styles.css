@@ -85,3 +85,83 @@ button:hover {
   opacity: 0.6;
   font-style: italic;
 }
+
+.num {
+  width: 64px;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid rgba(128, 128, 128, 0.4);
+  border-radius: 6px;
+  padding: 2px 6px;
+  text-align: right;
+}
+
+.nodes {
+  margin-top: 10px;
+  border-top: 1px solid rgba(128, 128, 128, 0.25);
+  padding-top: 8px;
+}
+
+.nodes-title {
+  font-size: 12px;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+
+.node {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 0;
+}
+
+.node-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.node-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+
+.badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+  border: 1px solid rgba(128, 128, 128, 0.5);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+
+.node-ctl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.mini {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.mini input {
+  margin: 0;
+}
+
+.mini-btn {
+  padding: 1px 6px;
+  font-size: 12px;
+  line-height: 1.2;
+}

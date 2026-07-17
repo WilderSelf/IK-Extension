@@ -3,7 +3,7 @@ import OBR, {
   type ToolContext,
   type ToolEvent,
 } from "@owlbear-rodeo/sdk";
-import type { Chain, Vec2 } from "../types";
+import { type Chain, type ChainMap, type Vec2, DEFAULT_ROTATION_OFFSET_DEG } from "../types";
 import {
   type Pose,
   rigidTranslate,
@@ -41,8 +41,18 @@ interface DragState {
 
 let drag: DragState | null = null;
 
+// True while onPoseDragStart is awaiting async setup. If the drag is ended or
+// cancelled during that window, `cancelledDuringStart` tells setup to tear the
+// interaction down immediately instead of leaking it.
+let starting = false;
+let cancelledDuringStart = false;
+
 // ---- Build-mode state ------------------------------------------------------
 
+// In-memory working copy of the chain map for the current build session. It is
+// updated synchronously on each click so rapid clicks don't read stale scene
+// metadata (OBR set/getMetadata is async with propagation latency).
+let buildWorking: ChainMap | null = null;
 let buildChainId: string | null = null;
 let buildLastNodeId: string | null = null;
 
@@ -120,52 +130,65 @@ function applyPose(state: DragState, pose: Pose, items: Item[]): void {
 
 async function onPoseDragStart(_ctx: ToolContext, event: ToolEvent): Promise<void> {
   drag = null;
-  const grabbed = await resolveGrabbed(event);
-  if (!grabbed) return;
-  const { chain, grabbedId } = grabbed;
+  starting = true;
+  cancelledDuringStart = false;
+  try {
+    const grabbed = await resolveGrabbed(event);
+    if (!grabbed) return;
+    const { chain, grabbedId } = grabbed;
 
-  const role = await OBR.player.getRole();
-  if (!canPose(chain, role, grabbedId)) return;
+    const role = await OBR.player.getRole();
+    if (!canPose(chain, role, grabbedId)) return;
 
-  let mode: "translate" | "solve";
-  let targetIds: string[] = [];
-  if (grabbedId === chain.rootId) {
-    mode = "translate";
-  } else {
-    mode = "solve";
-    const selection = (await OBR.player.getSelection()) ?? [];
-    const inChain = selection.filter((id) => id in chain.nodes);
-    targetIds =
-      inChain.length > 1 && inChain.includes(grabbedId)
-        ? shallowestSelectedPerBranch(chain, inChain)
-        : [grabbedId];
-    targetIds = targetIds.filter((id) => canMoveNode(chain, role, id));
-    if (targetIds.length === 0) return;
+    let mode: "translate" | "solve";
+    let targetIds: string[] = [];
+    if (grabbedId === chain.rootId) {
+      mode = "translate";
+    } else {
+      mode = "solve";
+      const selection = (await OBR.player.getSelection()) ?? [];
+      const inChain = selection.filter((id) => id in chain.nodes);
+      targetIds =
+        inChain.length > 1 && inChain.includes(grabbedId)
+          ? shallowestSelectedPerBranch(chain, inChain)
+          : [grabbedId];
+      targetIds = targetIds.filter((id) => canMoveNode(chain, role, id));
+      if (targetIds.length === 0) return;
+    }
+
+    const ids = Object.keys(chain.nodes);
+    const idSet = new Set(ids);
+    const items = await OBR.scene.items.getItems((i) => idSet.has(i.id));
+    const basePositions: Record<string, Vec2> = {};
+    for (const it of items) basePositions[it.id] = { x: it.position.x, y: it.position.y };
+
+    const [update, stop] = (await OBR.interaction.startItemInteraction(items)) as [
+      InteractionUpdate,
+      InteractionStop,
+    ];
+
+    // The drag was ended/cancelled while we were setting up — tear the
+    // interaction down now rather than leaving it live for 30s.
+    if (cancelledDuringStart) {
+      stop();
+      return;
+    }
+
+    drag = {
+      chain,
+      mode,
+      targetIds,
+      basePositions,
+      startPointer: { x: event.pointerPosition.x, y: event.pointerPosition.y },
+      ids,
+      update,
+      stop,
+      autoRotate: chain.settings.autoRotate,
+      rotationOffsetDeg: chain.settings.rotationOffsetDeg ?? DEFAULT_ROTATION_OFFSET_DEG,
+    };
+  } finally {
+    starting = false;
   }
-
-  const ids = Object.keys(chain.nodes);
-  const idSet = new Set(ids);
-  const items = await OBR.scene.items.getItems((i) => idSet.has(i.id));
-  const basePositions: Record<string, Vec2> = {};
-  for (const it of items) basePositions[it.id] = { x: it.position.x, y: it.position.y };
-
-  const [update, stop] = (await OBR.interaction.startItemInteraction(items)) as [
-    InteractionUpdate,
-    InteractionStop,
-  ];
-
-  drag = {
-    chain,
-    mode,
-    targetIds,
-    basePositions,
-    startPointer: { x: event.pointerPosition.x, y: event.pointerPosition.y },
-    ids,
-    update,
-    stop,
-    autoRotate: chain.settings.autoRotate,
-    rotationOffsetDeg: chain.settings.rotationOffsetDeg ?? 90,
-  };
 }
 
 function onPoseDragMove(_ctx: ToolContext, event: ToolEvent): void {
@@ -176,6 +199,12 @@ function onPoseDragMove(_ctx: ToolContext, event: ToolEvent): void {
 }
 
 async function onPoseDragEnd(_ctx: ToolContext, event: ToolEvent): Promise<void> {
+  // Drag ended before setup finished: there's nothing to commit, so treat it
+  // as a cancel and let onPoseDragStart clean up the pending interaction.
+  if (starting) {
+    cancelledDuringStart = true;
+    return;
+  }
   if (!drag) return;
   const state = drag;
   drag = null;
@@ -188,6 +217,10 @@ async function onPoseDragEnd(_ctx: ToolContext, event: ToolEvent): Promise<void>
 }
 
 function onPoseDragCancel(): void {
+  if (starting) {
+    cancelledDuringStart = true;
+    return;
+  }
   if (!drag) return;
   // Interaction updates are ephemeral; stopping reverts to scene state.
   drag.stop();
@@ -201,12 +234,15 @@ async function onBuildClick(_ctx: ToolContext, event: ToolEvent): Promise<void> 
   if (!item || !isToken(item)) return;
   const tokenId = item.id;
 
-  const chains = await getChains();
+  // Seed the working copy from the scene on the first click of a session, then
+  // keep operating on it in memory to avoid read-after-write races.
+  const chains = buildWorking ?? (await getChains());
   const existing = findChainForToken(chains, tokenId);
 
   // Clicking a token already in a chain re-anchors the build cursor there,
   // so the next clicks branch off it.
   if (existing) {
+    buildWorking = chains;
     buildChainId = existing.id;
     buildLastNodeId = tokenId;
     await OBR.notification.show(`IK: continuing from this node`, "SUCCESS");
@@ -216,6 +252,7 @@ async function onBuildClick(_ctx: ToolContext, event: ToolEvent): Promise<void> 
   // No active chain (or the active one is gone): start a new chain here.
   if (!buildChainId || !chains[buildChainId]) {
     const [next, id] = createChain(chains, tokenId);
+    buildWorking = next;
     buildChainId = id;
     buildLastNodeId = tokenId;
     await saveChains(next);
@@ -231,13 +268,15 @@ async function onBuildClick(_ctx: ToolContext, event: ToolEvent): Promise<void> 
       ? dist(positions[parentId], positions[tokenId])
       : 0;
   const next = addNode(chains, buildChainId, tokenId, parentId, restLength);
+  buildWorking = next;
   buildLastNodeId = tokenId;
   await saveChains(next);
   await OBR.notification.show(`IK: linked token to chain`, "SUCCESS");
 }
 
 function onBuildDeactivate(): void {
-  // Reset the build cursor so the next session starts fresh.
+  // Reset the build session so the next one re-seeds from the scene.
+  buildWorking = null;
   buildChainId = null;
   buildLastNodeId = null;
 }

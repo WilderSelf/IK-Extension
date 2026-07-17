@@ -3,6 +3,12 @@ import { CONNECTOR_TAG } from "./constants";
 import { getChains } from "./chainStore";
 import { getPositions } from "./scene";
 
+// Serialize refreshes: concurrent runs would both read the same "existing" set
+// and both add a full set of lines, leaving duplicates. If a refresh is
+// requested while one is running, coalesce it into a single follow-up pass.
+let refreshing = false;
+let refreshQueued = false;
+
 /**
  * Rebuild the connector-line overlay from scratch: delete any existing IK
  * connector lines, then draw a line for every bone of every chain that has
@@ -12,6 +18,23 @@ import { getPositions } from "./scene";
  * callers invoke this on chain-metadata changes and after a pose completes.
  */
 export async function refreshConnectors(): Promise<void> {
+  if (refreshing) {
+    refreshQueued = true;
+    return;
+  }
+  refreshing = true;
+  try {
+    await rebuildConnectors();
+  } finally {
+    refreshing = false;
+    if (refreshQueued) {
+      refreshQueued = false;
+      void refreshConnectors();
+    }
+  }
+}
+
+async function rebuildConnectors(): Promise<void> {
   const chains = await getChains();
 
   const existing = await OBR.scene.items.getItems(

@@ -72,7 +72,8 @@ export function removeToken(chains: ChainMap, tokenId: string): ChainMap {
 
 /**
  * Drop nodes whose token no longer exists in the scene, and delete any chain
- * left with fewer than two nodes or a missing root.
+ * whose root token is gone (an empty chain has no root either). A chain that
+ * still has only its root is a valid in-progress chain and is kept.
  */
 export function pruneMissing(chains: ChainMap, existingIds: Set<string>): ChainMap {
   const next = clone(chains);
@@ -83,7 +84,9 @@ export function pruneMissing(chains: ChainMap, existingIds: Set<string>): ChainM
       }
     }
     const c = next[chainId];
-    if (!c || !c.nodes[c.rootId] || Object.keys(c.nodes).length < 2) {
+    // Delete only when the root itself is gone (covers the empty case too). A
+    // lone root with no children yet is a valid in-progress chain and is kept.
+    if (!c || !c.nodes[c.rootId]) {
       delete next[chainId];
     }
   }

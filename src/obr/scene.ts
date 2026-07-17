@@ -1,9 +1,12 @@
 import OBR, { type Item } from "@owlbear-rodeo/sdk";
-import type { Chain, Vec2 } from "../types";
-import { ROTATION_OFFSET_DEG, TOKEN_LAYERS } from "./constants";
+import { type Vec2, DEFAULT_ROTATION_OFFSET_DEG } from "../types";
+import { TOKEN_LAYERS } from "./constants";
 
 /** Convert a bone math-angle (radians) to an OBR item rotation in degrees. */
-export function radToObrDeg(rad: number, offsetDeg: number = ROTATION_OFFSET_DEG): number {
+export function radToObrDeg(
+  rad: number,
+  offsetDeg: number = DEFAULT_ROTATION_OFFSET_DEG,
+): number {
   const deg = (rad * 180) / Math.PI + offsetDeg;
   return ((deg % 360) + 360) % 360;
 }
@@ -30,9 +33,4 @@ export async function getPositions(ids: string[]): Promise<Record<string, Vec2>>
   const out: Record<string, Vec2> = {};
   for (const item of items) out[item.id] = { x: item.position.x, y: item.position.y };
   return out;
-}
-
-/** All token ids referenced by a chain (root included). */
-export function chainTokenIds(chain: Chain): string[] {
-  return Object.keys(chain.nodes);
 }

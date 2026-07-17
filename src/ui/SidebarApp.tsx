@@ -32,6 +32,8 @@ import {
 } from "../obr/chainStore";
 import { getItemNames, getPositions, getSelection } from "../obr/scene";
 import { orderedNodes } from "../ik/tree";
+import { useObrTheme } from "./theme";
+import { AnchorIcon, CaretRightIcon, CloseIcon, RedoIcon, UndoIcon } from "./icons";
 
 const mapEq = (a: ChainMap, b: ChainMap) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -42,6 +44,7 @@ export function SidebarApp() {
   const [names, setNames] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
+  useObrTheme();
 
   useEffect(() => {
     let mounted = true;
@@ -151,14 +154,16 @@ export function SidebarApp() {
         <h1>IK Chains</h1>
         {ready && (
           <span className="undo-redo">
-            <button className="mini-btn" title="Undo the last rig change"
-              disabled={!canUndo(history)} onClick={onUndo}>↶ Undo</button>
-            <button className="mini-btn" title="Redo"
-              disabled={!canRedo(history)} onClick={onRedo}>↷ Redo</button>
+            <button className="mini-btn icon-btn" title="Undo the last rig change"
+              aria-label="Undo the last rig change"
+              disabled={!canUndo(history)} onClick={onUndo}><UndoIcon size={14} /> Undo</button>
+            <button className="mini-btn icon-btn" title="Redo the last undone rig change"
+              aria-label="Redo the last undone rig change"
+              disabled={!canRedo(history)} onClick={onRedo}><RedoIcon size={14} /> Redo</button>
           </span>
         )}
       </div>
-      <p className="hint">
+      <div className="hint">
         Build articulated token chains and pose them like limbs.
         <ol>
           <li>Open the <strong>IK Chains</strong> tool, then its <strong>Build</strong> mode.</li>
@@ -166,15 +171,19 @@ export function SidebarApp() {
           <li>Click an existing node to branch from it.</li>
           <li>Switch to <strong>Pose</strong> mode and drag any token — the chain flexes, root pinned.</li>
         </ol>
-      </p>
+      </div>
 
       {!ready && <p className="empty">Connecting to Owlbear Rodeo…</p>}
       {ready && list.length === 0 && <p className="empty">No chains yet.</p>}
 
       {notice && (
-        <p className="notice" role="status" onClick={() => setNotice("")}>
-          {notice}
-        </p>
+        <div className="notice" role="status" aria-live="polite">
+          <span>{notice}</span>
+          <button className="notice-dismiss" aria-label="Dismiss message"
+            title="Dismiss" onClick={() => setNotice("")}>
+            <CloseIcon size={14} />
+          </button>
+        </div>
       )}
 
       {list.map((chain) => (
@@ -202,8 +211,9 @@ export function SidebarApp() {
               </span>
               <span className="preset-actions">
                 <button onClick={() => onApplyPreset(name)}>Apply</button>
-                <button className="mini-btn danger" title="Delete preset"
-                  onClick={() => onDeletePreset(name)}>✕</button>
+                <button className="mini-btn danger icon-btn" title="Delete preset"
+                  aria-label={`Delete preset ${name}`}
+                  onClick={() => onDeletePreset(name)}><CloseIcon size={13} /></button>
               </span>
             </div>
           ))}
@@ -319,10 +329,16 @@ function ChainCard({
           return (
             <div className="node" key={id} style={{ paddingLeft: 8 + depth * 14 }}>
               <div className="node-main">
-                <span className="node-name">
-                  {isRoot ? "⚓ " : depth > 0 ? "› " : ""}
-                  {names[id] ?? id.slice(0, 8)}
-                </span>
+                {isRoot ? (
+                  <span className="node-icon root" title="Pinned root">
+                    <AnchorIcon size={13} />
+                  </span>
+                ) : depth > 0 ? (
+                  <span className="node-icon">
+                    <CaretRightIcon size={12} />
+                  </span>
+                ) : null}
+                <span className="node-name">{names[id] ?? id.slice(0, 8)}</span>
                 {isRoot && <span className="badge">root</span>}
               </div>
               <div className="node-ctl">
@@ -346,8 +362,10 @@ function ChainCard({
                     bend
                   </label>
                 )}
-                <button className="mini-btn danger" title={isRoot ? "Delete whole chain" : "Remove node"}
-                  onClick={() => onRemoveNode(id)}>✕</button>
+                <button className="mini-btn danger icon-btn"
+                  title={isRoot ? "Delete whole chain" : "Remove node"}
+                  aria-label={isRoot ? "Delete whole chain" : `Remove ${names[id] ?? "node"}`}
+                  onClick={() => onRemoveNode(id)}><CloseIcon size={13} /></button>
               </div>
               {canBend && constraint && (
                 <div className="node-bend">

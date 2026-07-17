@@ -5,6 +5,7 @@
 import {
   type Chain,
   type ChainMap,
+  type JointConstraint,
   type NodeOverride,
   defaultSettings,
 } from "../types";
@@ -146,6 +147,25 @@ export function updateSettings(
   const next = clone(chains);
   if (!next[chainId]) return chains;
   next[chainId].settings = { ...next[chainId].settings, ...patch };
+  return next;
+}
+
+/**
+ * Set or clear a node's bend limit. Passing `null` removes the constraint.
+ * Constraints on the root are ignored by the solver (no reference bone), but we
+ * store whatever is asked and let the UI gate where it is offered.
+ */
+export function setNodeConstraint(
+  chains: ChainMap,
+  chainId: string,
+  tokenId: string,
+  constraint: JointConstraint | null,
+): ChainMap {
+  const next = clone(chains);
+  const chain = next[chainId];
+  if (!chain || !(tokenId in chain.nodes)) return chains;
+  if (constraint === null) delete chain.nodes[tokenId].constraint;
+  else chain.nodes[tokenId].constraint = constraint;
   return next;
 }
 

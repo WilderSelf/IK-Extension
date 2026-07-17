@@ -19,11 +19,28 @@ export interface NodeOverride {
   locked?: boolean;
 }
 
+/**
+ * Optional per-joint angle limit. Constrains the bend of a node's incoming bone
+ * (parent -> this node) relative to its parent's incoming bone (grandparent ->
+ * parent), in degrees. `minDeg <= maxDeg`, both within [-180, 180]; the two
+ * signs are the two bend directions (which is which depends on token layout, so
+ * tune by eye). A range like -160..0 gives a knee that only bends one way.
+ *
+ * Requires a grandparent as the reference bone, so it has no effect on the first
+ * node off the root (or off a locked sub-base pin during a solve).
+ */
+export interface JointConstraint {
+  minDeg: number;
+  maxDeg: number;
+}
+
 export interface ChainNode {
   /** Parent token id, or null for the root. */
   parentId: string | null;
   /** Fixed rest distance to the parent, captured at build time. 0 for root. */
   restLength: number;
+  /** Optional bend limit for this node's bone relative to its parent's bone. */
+  constraint?: JointConstraint;
 }
 
 export interface ChainSettings {

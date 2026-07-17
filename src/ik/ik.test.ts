@@ -63,6 +63,38 @@ describe("solveChain (FABRIK)", () => {
     const out = solveChain(coincident, [0, 0], { x: 100, y: 100 });
     expect(out).toEqual(coincident); // no collapse-to-root / NaN
   });
+
+  it("clamps a joint's bend to its angle limit", () => {
+    // Bend angle at joint i: outgoing bone (i-1 -> i) relative to incoming
+    // bone (i-2 -> i-1), wrapped to (-π, π].
+    const relAngle = (out: { x: number; y: number }[], i: number) => {
+      const a = Math.atan2(out[i - 1].y - out[i - 2].y, out[i - 1].x - out[i - 2].x);
+      const b = Math.atan2(out[i].y - out[i - 1].y, out[i].x - out[i - 1].x);
+      return Math.atan2(Math.sin(b - a), Math.cos(b - a));
+    };
+    const line = [
+      { x: 0, y: 0 },
+      { x: 10, y: 0 },
+      { x: 20, y: 0 },
+    ];
+    const rest = [10, 10];
+    const target = { x: 10, y: -15 }; // pulls the tip to bend one way
+
+    const free = solveChain(line, rest, target, { iterations: 40 });
+    expect(relAngle(free, 2)).toBeLessThan(-0.05); // free solve bends negative
+
+    // Forbid the negative bend: joint at index 2 may only open in [0, π].
+    const limited = solveChain(line, rest, target, {
+      iterations: 40,
+      constraints: [undefined, undefined, { min: 0, max: Math.PI }],
+    });
+    const rel = relAngle(limited, 2);
+    expect(rel).toBeGreaterThanOrEqual(-1e-6); // clamped to the min boundary
+    expect(rel).toBeLessThan(0.05);
+    // Rest lengths are still honored under the constraint.
+    expect(dist(limited[0], limited[1])).toBeCloseTo(10, 3);
+    expect(dist(limited[1], limited[2])).toBeCloseTo(10, 3);
+  });
 });
 
 // body -> a1 -> a2 (branch A), body -> b1 (branch B)
@@ -260,6 +292,38 @@ describe("pose", () => {
     expect(p.n1).toEqual(pos.n1);
     expect(p.n2).toEqual(pos.n2);
     expect(dist(p.n3, pos.n3)).toBeGreaterThan(1);
+  });
+
+  it("respects a node's bend constraint while posing", () => {
+    const base: Chain = {
+      id: "cc",
+      rootId: "body",
+      nodes: {
+        body: { parentId: null, restLength: 0 },
+        A: { parentId: "body", restLength: 10 },
+        B: { parentId: "A", restLength: 10 },
+      },
+      settings: defaultSettings(),
+    };
+    const pos = { body: { x: 0, y: 0 }, A: { x: 10, y: 0 }, B: { x: 20, y: 0 } };
+    const relBend = (p: Record<string, { x: number; y: number }>) => {
+      const a = Math.atan2(p.A.y - p.body.y, p.A.x - p.body.x);
+      const b = Math.atan2(p.B.y - p.A.y, p.B.x - p.A.x);
+      return Math.atan2(Math.sin(b - a), Math.cos(b - a));
+    };
+
+    // Grabbing B and pulling below the axis bends the joint negatively.
+    const free = solvePose(base, pos, { B: { x: 10, y: -15 } }, { iterations: 40 }).positions;
+    expect(relBend(free)).toBeLessThan(-0.05);
+
+    // The same drag with a [0, 180°] limit on B may not bend that way.
+    const constrained: Chain = {
+      ...base,
+      nodes: { ...base.nodes, B: { ...base.nodes.B, constraint: { minDeg: 0, maxDeg: 180 } } },
+    };
+    const limited = solvePose(constrained, pos, { B: { x: 10, y: -15 } }, { iterations: 40 }).positions;
+    expect(relBend(limited)).toBeGreaterThanOrEqual(-0.02);
+    expect(dist(limited.A, limited.B)).toBeCloseTo(10, 2); // bone preserved
   });
 
   it("solves two independent branches simultaneously (multi-target group move)", () => {

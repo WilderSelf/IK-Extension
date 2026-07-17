@@ -8,6 +8,7 @@ import {
   pruneMissing,
   recalibrate,
   removeToken,
+  setNodeConstraint,
   setNodeOverride,
   updateSettings,
 } from "./chains";
@@ -125,11 +126,29 @@ describe("chain model", () => {
     expect(cleared[id].settings.nodeOverrides?.a2).toBeUndefined();
   });
 
+  it("setNodeConstraint sets and clears a node bend limit", () => {
+    const m = build();
+    const id = Object.keys(m)[0];
+    const withLimit = setNodeConstraint(m, id, "a2", { minDeg: -120, maxDeg: 0 });
+    expect(withLimit[id].nodes.a2.constraint).toEqual({ minDeg: -120, maxDeg: 0 });
+    // input is not mutated
+    expect(m[id].nodes.a2.constraint).toBeUndefined();
+    const cleared = setNodeConstraint(withLimit, id, "a2", null);
+    expect(cleared[id].nodes.a2.constraint).toBeUndefined();
+  });
+
+  it("setNodeConstraint ignores an unknown token", () => {
+    const m = build();
+    const id = Object.keys(m)[0];
+    expect(setNodeConstraint(m, id, "nope", { minDeg: 0, maxDeg: 90 })).toBe(m);
+  });
+
   it("does not mutate the input map", () => {
     const m = build();
     const snapshot = JSON.stringify(m);
     removeToken(m, "a1");
     updateSettings(m, Object.keys(m)[0], { autoRotate: false });
+    setNodeConstraint(m, Object.keys(m)[0], "a2", { minDeg: -90, maxDeg: 90 });
     expect(JSON.stringify(m)).toBe(snapshot);
   });
 });

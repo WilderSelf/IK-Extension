@@ -339,3 +339,92 @@ describe("pose", () => {
     expect(dist(p.body, p.b1)).toBeCloseTo(10, 2);
   });
 });
+
+// root -> base -> {L1 -> L2}, {R1 -> R2}. `base` is a fork shared by both tips.
+function makeFork(): Chain {
+  return {
+    id: "fork",
+    rootId: "root",
+    nodes: {
+      root: { parentId: null, restLength: 0 },
+      base: { parentId: "root", restLength: 10 },
+      L1: { parentId: "base", restLength: 10 },
+      L2: { parentId: "L1", restLength: 10 },
+      R1: { parentId: "base", restLength: 10 },
+      R2: { parentId: "R1", restLength: 10 },
+    },
+    settings: defaultSettings(),
+  };
+}
+
+const forkPos = {
+  root: { x: 0, y: 0 },
+  base: { x: 0, y: 10 },
+  L1: { x: -10, y: 10 },
+  L2: { x: -20, y: 10 },
+  R1: { x: 10, y: 10 },
+  R2: { x: 20, y: 10 },
+};
+
+describe("multi-effector (shared sub-base)", () => {
+  it("negotiates a shared unlocked sub-base instead of fighting over it", () => {
+    const fork = makeFork();
+    // Pull both tips up-and-inward, symmetrically about x = 0.
+    const targets = { L2: { x: -8, y: 22 }, R2: { x: 8, y: 22 } };
+    const { positions: p } = solvePose(fork, forkPos, targets, { iterations: 80, tolerance: 0.01 });
+
+    // Root pinned; shared base stays on the symmetry axis (a last-write-wins
+    // independent solve would drag it toward whichever tip solved last).
+    expect(p.root.x).toBeCloseTo(0, 5);
+    expect(p.root.y).toBeCloseTo(0, 5);
+    expect(dist(p.root, p.base)).toBeCloseTo(10, 2);
+    expect(p.base.x).toBeCloseTo(0, 2);
+
+    // The two branches come out as mirror images.
+    expect(p.L2.x).toBeCloseTo(-p.R2.x, 2);
+    expect(p.L2.y).toBeCloseTo(p.R2.y, 2);
+    expect(p.L1.x).toBeCloseTo(-p.R1.x, 2);
+
+    // Every bone keeps its rest length.
+    expect(dist(p.base, p.L1)).toBeCloseTo(10, 2);
+    expect(dist(p.L1, p.L2)).toBeCloseTo(10, 2);
+    expect(dist(p.base, p.R1)).toBeCloseTo(10, 2);
+    expect(dist(p.R1, p.R2)).toBeCloseTo(10, 2);
+
+    // Both effectors reach their (jointly reachable) targets.
+    expect(dist(p.L2, targets.L2)).toBeLessThan(2);
+    expect(dist(p.R2, targets.R2)).toBeLessThan(2);
+  });
+
+  it("treats a locked sub-base as fixed, solving the branches independently", () => {
+    const fork: Chain = {
+      ...makeFork(),
+      settings: { ...defaultSettings(), nodeOverrides: { base: { locked: true } } },
+    };
+    const { positions: p } = solvePose(
+      fork,
+      forkPos,
+      { L2: { x: -8, y: 22 }, R2: { x: 8, y: 22 } },
+      { iterations: 40 },
+    );
+    // The locked fork and the root hold exactly; each branch flexes from the pin.
+    expect(p.base).toEqual(forkPos.base);
+    expect(p.root).toEqual(forkPos.root);
+    expect(dist(p.base, p.L1)).toBeCloseTo(10, 2);
+    expect(dist(p.L1, p.L2)).toBeCloseTo(10, 2);
+    expect(dist(p.base, p.R1)).toBeCloseTo(10, 2);
+  });
+
+  it("still solves two tips on genuinely independent branches", () => {
+    // Tips whose only shared ancestor is the pinned root must stay independent.
+    const fork = makeFork();
+    const { positions: p } = solvePose(
+      fork,
+      forkPos,
+      { L2: { x: -18, y: 14 }, R2: { x: 18, y: 14 } },
+      { iterations: 60, tolerance: 0.01 },
+    );
+    expect(dist(p.base, p.L1)).toBeCloseTo(10, 2);
+    expect(dist(p.R1, p.R2)).toBeCloseTo(10, 2);
+  });
+});

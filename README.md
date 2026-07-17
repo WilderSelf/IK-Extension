@@ -83,7 +83,7 @@ hanging rope your players can swing.
 | **Root (⚓)** | The pinned pivot. During IK it never moves; dragging it translates the whole chain rigidly. |
 | **Node** | Any token in the chain. Every non-root node has exactly one parent. |
 | **Bone** | The connection between a node and its parent. Its **rest length** is fixed (captured at build time). |
-| **Branch** | A linear strand from the root outward. Branches fan out from the root and solve **independently**. |
+| **Branch** | A linear strand from the root outward. Branches that split at the root solve **independently**; two tips forking off a shared unlocked joint are solved **jointly** so they negotiate that joint. |
 | **Tip** | A leaf node (no children) — the end of a limb. |
 | **Grabbed node** | The node you drag; it becomes the IK target for its branch. Nodes *beyond* it trail rigidly. |
 
@@ -212,9 +212,10 @@ src/
 │  └─ templates.ts       # PURE preset ops (chain <-> token-agnostic template)
 ├─ ik/                   # PURE solver — no Owlbear imports, fully unit-tested
 │  ├─ vec.ts             #   2D vector math
-│  ├─ fabrik.ts          #   FABRIK solver
-│  ├─ tree.ts            #   branch / subtree / ordering / selection helpers
-│  └─ pose.ts            #   orchestration: solve branch + rigid sub-tree carry
+│  ├─ fabrik.ts          #   single-chain FABRIK solver (+ bend limits)
+│  ├─ multi.ts           #   multi-effector FABRIK over a shared sub-base
+│  ├─ tree.ts            #   branch / subtree / ordering / LCA / selection helpers
+│  └─ pose.ts            #   orchestration: group targets, solve, rigid carry
 ├─ obr/                  # Owlbear wiring
 │  ├─ constants.ts       #   ids, layers, rotation default
 │  ├─ scene.ts           #   item helpers, rad→deg conversion
@@ -297,7 +298,9 @@ Scripts:
 
 - **Unit tests** (`npm test`) cover the pure layers: FABRIK keeps the root
   pinned and rest lengths within tolerance, unreachable targets straighten,
-  group carry preserves cluster offsets, branches solve independently, and the
+  group carry preserves cluster offsets, independent branches don't interfere, a
+  shared unlocked sub-base is negotiated symmetrically (multi-effector) while a
+  locked one stays fixed, bend limits are clamped, presets round-trip, and the
   chain-model ops (create/link/remove/prune/recalibrate/overrides) behave and
   never mutate their inputs. Tree traversals are also exercised at scale
   (thousand-node chains stay linear-time, no stack overflow) and against
@@ -318,9 +321,13 @@ Host it anywhere static (GitHub Pages, Netlify, Cloudflare Pages, …) and share
 
 - **Root pinned during IK.** Dragging the root translates; dragging anything else
   solves. This keeps posing predictable.
-- **Branches split at the root and solve independently.** Simple and stable;
-  moving one claw never disturbs a sibling. Group-move handles the "move a whole
-  cluster" case without shared-joint math.
+- **Branches that don't share a joint solve independently; forks that do
+  negotiate.** Two claws hanging off the root never disturb each other. But when
+  you grab two tips that fork off a *shared unlocked joint*, they're solved
+  jointly with multi-effector FABRIK — the shared joint settles at the average of
+  what each branch wants, instead of one tip winning and dragging the other.
+  Lock the shared joint (or any joint above it) and everything above the lock is
+  fixed, so it's never contested.
 - **Rigid bones; optional joint-angle limits.** Bones keep their captured length
   always. Joints rotate freely by default, but any joint (with a reference bone
   above it) can be given a per-node **bend limit** so it only flexes within a
@@ -343,7 +350,6 @@ Host it anywhere static (GitHub Pages, Netlify, Cloudflare Pages, …) and share
 
 Ideas for future iterations:
 
-- **Multi-effector FABRIK** for forks that share an intermediate joint (locked
-  joints already anchor a solve; this would let two grabbed tips negotiate a
-  shared, unlocked sub-base).
 - Undo integration and richer in-canvas handles.
+- Angle constraints for the multi-effector (joint) solve (single-chain bend
+  limits are already enforced; forks currently negotiate without them).

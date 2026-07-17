@@ -55,6 +55,15 @@ describe("chain model", () => {
     expect(Object.keys(pruneMissing(m, new Set(["a1", "a2", "b1"])))).toHaveLength(0);
   });
 
+  it("pruneMissing keeps a valid lone-root (in-progress) chain", () => {
+    // A brand-new root awaiting its first child must NOT be pruned.
+    const [m, id] = createChain({}, "body");
+    const pruned = pruneMissing(m, new Set(["body"]));
+    expect(pruned[id]?.rootId).toBe("body");
+    // ...but a lone root whose token was deleted is removed.
+    expect(Object.keys(pruneMissing(m, new Set<string>()))).toHaveLength(0);
+  });
+
   it("recalibrate re-measures rest lengths", () => {
     const m = build();
     const positions = {

@@ -250,7 +250,6 @@ async function onBuildClick(_ctx: ToolContext, event: ToolEvent): Promise<void> 
     buildWorking = chains;
     buildChainId = existing.id;
     buildLastNodeId = tokenId;
-    await OBR.notification.show(`IK: continuing from this node`, "SUCCESS");
     return;
   }
 
@@ -261,7 +260,6 @@ async function onBuildClick(_ctx: ToolContext, event: ToolEvent): Promise<void> 
     buildChainId = id;
     buildLastNodeId = tokenId;
     await saveChains(next);
-    await OBR.notification.show(`IK: set root token`, "SUCCESS");
     return;
   }
 
@@ -282,7 +280,6 @@ async function onBuildClick(_ctx: ToolContext, event: ToolEvent): Promise<void> 
   buildWorking = next;
   buildLastNodeId = tokenId;
   await saveChains(next);
-  await OBR.notification.show(`IK: linked token to chain`, "SUCCESS");
 }
 
 function onBuildDeactivate(): void {

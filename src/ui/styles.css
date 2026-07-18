@@ -33,6 +33,9 @@ body {
   font-size: 14px;
   background: var(--ik-bg);
   color: var(--ik-text);
+  /* The popover auto-sizes to content via OBR.action.setHeight; when Owlbear
+     caps it at the pane height, the body scrolls rather than clipping. */
+  overflow-y: auto;
 }
 
 h1 {
@@ -157,6 +160,13 @@ input:focus-visible,
   flex-wrap: wrap;
   gap: 8px;
   padding: 2px 0;
+  border-radius: 6px;
+}
+
+/* Highlight a node whose token is selected on the map (and vice-versa). */
+.node.selected {
+  background: var(--ik-primary-soft);
+  outline: 1px solid var(--ik-primary);
 }
 
 .node-bend {
@@ -182,6 +192,24 @@ input:focus-visible,
   align-items: center;
   gap: 6px;
   min-width: 0;
+}
+
+/* The node label doubles as a "select this token on the map" button. It reuses
+   .node-main's layout but strips the default button chrome. */
+.node-select {
+  flex: 1 1 auto;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 2px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.node-select:hover {
+  background: var(--ik-hover);
 }
 
 .node-icon {

@@ -10,7 +10,7 @@
     "icon": "/IK-Extension/icon.svg",
     "popover": "/IK-Extension/index.html",
     "height": 500,
-    "width": 340
+    "width": 425
   },
   "background_url": "/IK-Extension/background.html"
 }

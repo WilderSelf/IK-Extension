@@ -44,17 +44,23 @@ export function SidebarApp() {
   const [names, setNames] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState("");
   const [ready, setReady] = useState(false);
+  const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   useObrTheme();
 
   useEffect(() => {
     let mounted = true;
     let unsubChains = () => {};
     let unsubTemplates = () => {};
+    let unsubPlayer = () => {};
     OBR.onReady(() => {
       // The component may have unmounted while onReady was pending; don't set
       // state on a dead component and make sure the subscriptions are cleaned up.
       if (!mounted) return;
       setReady(true);
+      // Mirror the map selection so chain nodes can highlight when their token
+      // is picked, and stay in step as the selection changes.
+      getSelection().then((s) => mounted && setSelected(new Set(s))).catch(() => {});
+      unsubPlayer = OBR.player.onChange((p) => setSelected(new Set(p.selection ?? [])));
       getChains()
         .then((c) => {
           if (!mounted) return;
@@ -76,8 +82,29 @@ export function SidebarApp() {
       mounted = false;
       unsubChains();
       unsubTemplates();
+      unsubPlayer();
     };
   }, []);
+
+  // Grow the action popover to fit its content, so short rigs get a compact
+  // panel and long ones expand until Owlbear caps them at the pane height and
+  // the body scrolls. Owlbear clamps setHeight to the available space.
+  useEffect(() => {
+    if (!ready) return;
+    const measure = () => {
+      const h = document.documentElement.scrollHeight;
+      OBR.action.setHeight(Math.min(Math.max(h, 120), 2000)).catch(() => {});
+    };
+    const ro = new ResizeObserver(measure);
+    ro.observe(document.body);
+    measure();
+    return () => ro.disconnect();
+  }, [ready]);
+
+  // Select a chain's token on the map when its sidebar row is clicked.
+  const onSelectNode = (id: string) => {
+    OBR.player.select([id], true).catch(() => {});
+  };
 
   // Refresh token display names whenever the set of chained tokens changes.
   useEffect(() => {
@@ -194,6 +221,8 @@ export function SidebarApp() {
           onPatch={patch}
           onSavePreset={onSavePreset}
           chains={chains}
+          selected={selected}
+          onSelectNode={onSelectNode}
         />
       ))}
 
@@ -229,12 +258,16 @@ function ChainCard({
   names,
   onPatch,
   onSavePreset,
+  selected,
+  onSelectNode,
 }: {
   chain: Chain;
   chains: ChainMap;
   names: Record<string, string>;
   onPatch: (next: ChainMap) => Promise<void>;
   onSavePreset: (chain: Chain, name: string) => void | Promise<void>;
+  selected: ReadonlySet<string>;
+  onSelectNode: (id: string) => void;
 }) {
   const [presetName, setPresetName] = useState("");
   const nodes = orderedNodes(chain);
@@ -327,8 +360,17 @@ function ChainCard({
           const canBend = !isRoot && node?.parentId != null && node.parentId !== chain.rootId;
           const constraint = node?.constraint;
           return (
-            <div className="node" key={id} style={{ paddingLeft: 8 + depth * 14 }}>
-              <div className="node-main">
+            <div
+              className={`node${selected.has(id) ? " selected" : ""}`}
+              key={id}
+              style={{ paddingLeft: 8 + depth * 14 }}
+            >
+              <button
+                type="button"
+                className="node-main node-select"
+                title="Select this token on the map"
+                onClick={() => onSelectNode(id)}
+              >
                 {isRoot ? (
                   <span className="node-icon root" title="Pinned root">
                     <AnchorIcon size={13} />
@@ -340,7 +382,7 @@ function ChainCard({
                 ) : null}
                 <span className="node-name">{names[id] ?? id.slice(0, 8)}</span>
                 {isRoot && <span className="badge">root</span>}
-              </div>
+              </button>
               <div className="node-ctl">
                 {chain.settings.playerPosable && (
                   <label className="mini" title="Players may move this node">

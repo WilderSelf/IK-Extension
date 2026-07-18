@@ -28,6 +28,8 @@ export interface TemplateNode {
   /** Index of this node's parent in `nodes`; null for the root (always index 0). */
   parent: number | null;
   restLength: number;
+  /** Authored rotation relative to the incoming bone (see ChainNode.boneOffsetDeg). */
+  boneOffsetDeg?: number;
   constraint?: JointConstraint;
   override?: NodeOverride;
 }
@@ -57,6 +59,7 @@ export function toTemplate(chain: Chain): ChainTemplate {
       parent: parentId === null ? null : indexOf.get(parentId) ?? null,
       restLength: node.restLength,
     };
+    if (node.boneOffsetDeg !== undefined) tn.boneOffsetDeg = node.boneOffsetDeg;
     if (node.constraint) tn.constraint = clone(node.constraint);
     const ov = overrides[id];
     if (ov && Object.keys(ov).length > 0) tn.override = clone(ov);
@@ -93,7 +96,7 @@ export function instantiateTemplate(
   for (let i = 1; i < template.nodes.length; i++) {
     const tn = template.nodes[i];
     const parentIdx = tn.parent ?? 0;
-    map = addNode(map, chainId, tokenIds[i], tokenIds[parentIdx], tn.restLength);
+    map = addNode(map, chainId, tokenIds[i], tokenIds[parentIdx], tn.restLength, tn.boneOffsetDeg);
   }
 
   // Per-node constraints and overrides (including the root's own override).

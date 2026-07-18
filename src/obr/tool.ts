@@ -19,7 +19,7 @@ import {
 import { findChainForToken, getChains, saveChains, createChain, addNode } from "./chainStore";
 import { getPositions, isToken, radToObrDeg } from "./scene";
 import { refreshConnectors } from "./connectors";
-import { dist } from "../ik/vec";
+import { angle, dist } from "../ik/vec";
 
 /** Max distance (scene units) to associate a pointer with a chained token. */
 const GRAB_RADIUS = 300;
@@ -128,7 +128,10 @@ function applyPose(state: DragState, pose: Pose, items: Item[]): void {
       item.id !== state.chain.rootId &&
       pose.rotations[item.id] !== undefined
     ) {
-      item.rotation = radToObrDeg(pose.rotations[item.id], state.rotationOffsetDeg);
+      // Prefer the per-node authored offset (captured at build/recalibrate); fall
+      // back to the chain's global offset for legacy nodes that never captured one.
+      const off = state.chain.nodes[item.id]?.boneOffsetDeg ?? state.rotationOffsetDeg;
+      item.rotation = radToObrDeg(pose.rotations[item.id], off);
     }
   }
 }
@@ -276,7 +279,14 @@ async function onBuildClick(_ctx: ToolContext, event: ToolEvent): Promise<void> 
     positions[tokenId] && positions[parentId]
       ? dist(positions[parentId], positions[tokenId])
       : 0;
-  const next = addNode(chains, buildChainId, tokenId, parentId, restLength);
+  // Capture how this token's art is rotated relative to its bone, so auto-rotate
+  // preserves the orientation instead of snapping to the global "points up"
+  // default. Same `angle` the solver uses, so the delta is convention-agnostic.
+  const boneOffsetDeg =
+    positions[tokenId] && positions[parentId]
+      ? item.rotation - (angle(positions[parentId], positions[tokenId]) * 180) / Math.PI
+      : undefined;
+  const next = addNode(chains, buildChainId, tokenId, parentId, restLength, boneOffsetDeg);
   buildWorking = next;
   buildLastNodeId = tokenId;
   await saveChains(next);

@@ -39,6 +39,16 @@ export interface ChainNode {
   parentId: string | null;
   /** Fixed rest distance to the parent, captured at build time. 0 for root. */
   restLength: number;
+  /**
+   * The token's authored rotation *relative to its incoming bone*, captured at
+   * build time (token rotation minus the parent->node bone angle, in degrees).
+   * With auto-rotate on, the token is re-rotated to `boneAngleNow + boneOffsetDeg`
+   * as the limb flexes, so its art keeps the orientation you gave it instead of
+   * snapping to a fixed "points up" default. Undefined on legacy nodes and on the
+   * root (the root isn't re-rotated); those fall back to the chain's global
+   * `rotationOffsetDeg`. Re-captured by Recalibrate.
+   */
+  boneOffsetDeg?: number;
   /** Optional bend limit for this node's bone relative to its parent's bone. */
   constraint?: JointConstraint;
 }

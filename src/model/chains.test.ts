@@ -102,6 +102,34 @@ describe("chain model", () => {
     expect(r[chainId].nodes.a2.restLength).toBeCloseTo(0, 5);
   });
 
+  it("addNode stores boneOffsetDeg only when provided", () => {
+    let [m, id] = createChain({}, "body");
+    m = addNode(m, id, "a1", "body", 10, 35);
+    m = addNode(m, id, "a2", "a1", 10);
+    expect(m[id].nodes.a1.boneOffsetDeg).toBe(35);
+    expect(m[id].nodes.a2.boneOffsetDeg).toBeUndefined();
+  });
+
+  it("recalibrate captures boneOffsetDeg from rotations relative to the bone", () => {
+    const m = build();
+    const chainId = Object.keys(m)[0];
+    // a1 sits due east of body, so its bone angle is 0deg; a token rotated 90deg
+    // has a +90 offset. b1 sits due north (bone angle -90deg in y-down math), and
+    // a token rotated 0deg yields offset 0 - (-90) = 90.
+    const positions = {
+      body: { x: 0, y: 0 },
+      a1: { x: 10, y: 0 },
+      a2: { x: 20, y: 0 },
+      b1: { x: 0, y: -10 },
+    };
+    const rotations = { body: 0, a1: 90, a2: 0, b1: 0 };
+    const r = recalibrate(m, chainId, positions, rotations);
+    expect(r[chainId].nodes.a1.boneOffsetDeg).toBeCloseTo(90, 5);
+    expect(r[chainId].nodes.b1.boneOffsetDeg).toBeCloseTo(90, 5);
+    // Root has no incoming bone, so it never gets an offset.
+    expect(r[chainId].nodes.body.boneOffsetDeg).toBeUndefined();
+  });
+
   it("deleteChain removes the chain", () => {
     const m = build();
     const id = Object.keys(m)[0];

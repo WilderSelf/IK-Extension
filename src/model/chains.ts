@@ -40,18 +40,24 @@ export function createChain(chains: ChainMap, tokenId: string): [ChainMap, strin
   return [next, id];
 }
 
-/** Link `tokenId` under `parentId` in `chainId`, capturing `restLength`. */
+/**
+ * Link `tokenId` under `parentId` in `chainId`, capturing `restLength` and,
+ * when provided, the token's authored `boneOffsetDeg` (rotation relative to its
+ * incoming bone) so auto-rotate preserves its orientation while posing.
+ */
 export function addNode(
   chains: ChainMap,
   chainId: string,
   tokenId: string,
   parentId: string,
   restLength: number,
+  boneOffsetDeg?: number,
 ): ChainMap {
   const next = clone(chains);
   const chain = next[chainId];
   if (!chain) return chains;
   chain.nodes[tokenId] = { parentId, restLength };
+  if (boneOffsetDeg !== undefined) chain.nodes[tokenId].boneOffsetDeg = boneOffsetDeg;
   return next;
 }
 
@@ -120,11 +126,17 @@ export function deleteChain(chains: ChainMap, chainId: string): ChainMap {
   return next;
 }
 
-/** Re-capture rest lengths from current token positions. */
+/**
+ * Re-capture rest lengths from current token positions, and — when `rotations`
+ * are supplied — each node's `boneOffsetDeg` from its current rotation relative
+ * to its (freshly measured) incoming bone. This is how an existing chain adopts
+ * orientation preservation: re-orient the tokens by hand, then Recalibrate.
+ */
 export function recalibrate(
   chains: ChainMap,
   chainId: string,
   positions: Record<string, { x: number; y: number }>,
+  rotations?: Record<string, number>,
 ): ChainMap {
   const next = clone(chains);
   const chain = next[chainId];
@@ -133,7 +145,13 @@ export function recalibrate(
     if (!node.parentId) continue;
     const a = positions[node.parentId];
     const b = positions[id];
-    if (a && b) node.restLength = Math.hypot(a.x - b.x, a.y - b.y);
+    if (!a || !b) continue;
+    node.restLength = Math.hypot(a.x - b.x, a.y - b.y);
+    if (rotations && rotations[id] !== undefined) {
+      // Bone angle parent->node in degrees, matching ik/vec `angle` + boneAngles.
+      const boneDeg = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+      node.boneOffsetDeg = rotations[id] - boneDeg;
+    }
   }
   return next;
 }

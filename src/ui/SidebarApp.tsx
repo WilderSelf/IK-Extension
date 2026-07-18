@@ -30,7 +30,7 @@ import {
   toTemplate,
   updateSettings,
 } from "../obr/chainStore";
-import { getItemNames, getPositions, getSelection } from "../obr/scene";
+import { getItemNames, getPositions, getRotations, getSelection } from "../obr/scene";
 import { orderedNodes } from "../ik/tree";
 import { useObrTheme } from "./theme";
 import { AnchorIcon, CaretRightIcon, CloseIcon, RedoIcon, UndoIcon } from "./icons";
@@ -293,8 +293,8 @@ function ChainCard({
 
   async function onRecalibrate() {
     const ids = Object.keys(chain.nodes);
-    const positions = await getPositions(ids);
-    await onPatch(recalibrate(chains, chain.id, positions));
+    const [positions, rotations] = await Promise.all([getPositions(ids), getRotations(ids)]);
+    await onPatch(recalibrate(chains, chain.id, positions, rotations));
   }
 
   return (
@@ -334,7 +334,7 @@ function ChainCard({
           onChange={(e) => toggle("playerPosable", e.target.checked)} />
       </div>
       <div className="row">
-        <span className="chain-sub">Re-measure rest lengths from current spacing</span>
+        <span className="chain-sub">Re-measure bone lengths and orientation from the current layout</span>
         <button onClick={onRecalibrate}>Recalibrate</button>
       </div>
       <div className="row">

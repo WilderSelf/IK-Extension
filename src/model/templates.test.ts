@@ -66,6 +66,15 @@ describe("chain templates", () => {
     expect(chain.settings.rotationOffsetDeg).toBe(30);
   });
 
+  it("round-trips per-node boneOffsetDeg through save and apply", () => {
+    let [m, id] = createChain({}, "body");
+    m = addNode(m, id, "a1", "body", 10, 45);
+    const t = toTemplate(Object.values(m)[0]);
+    expect(t.nodes[1].boneOffsetDeg).toBe(45);
+    const [map, chainId] = instantiateTemplate(t, ["r", "x1"], {})!;
+    expect(map[chainId].nodes.x1.boneOffsetDeg).toBe(45);
+  });
+
   it("adds the new chain alongside existing chains without clobbering them", () => {
     const m = build();
     const t = toTemplate(Object.values(m)[0]);

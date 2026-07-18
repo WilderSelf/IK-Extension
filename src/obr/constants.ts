@@ -3,11 +3,14 @@ export const ID = "rodeo.wilder.ik";
 export const TOOL_ID = `${ID}/tool`;
 export const MODE_POSE = `${ID}/pose`;
 export const MODE_BUILD = `${ID}/build`;
+export const MODE_CONSTRAIN = `${ID}/constrain`;
 
 export const CTX_SET_ROOT = `${ID}/set-root`;
 export const CTX_REMOVE = `${ID}/remove`;
 
 export const CONNECTOR_TAG = `${ID}/connector`;
+/** Marks the transient bend-limit picker overlay items so they can be cleared. */
+export const PICKER_TAG = `${ID}/picker`;
 
 /**
  * Resolve a bundled public asset (icon SVG) against the site's base path.

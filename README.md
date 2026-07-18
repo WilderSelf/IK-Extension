@@ -32,11 +32,13 @@ hanging rope your players can swing.
 
 ## What it does
 
-- **Dedicated `IK Chains` toolbar tool** with two modes:
+- **Dedicated `IK Chains` toolbar tool** with three modes:
   - **Build** — click tokens to assemble a chain (root, then outward; click an
     existing node to branch).
   - **Pose** — drag any token to solve the chain in real time
     ([FABRIK](https://en.wikipedia.org/wiki/FABRIK), root pinned).
+  - **Limit bend** — click a joint for an on-canvas dial and drag two handles to
+    set its allowed bend range.
 - **Branching trees** — one root can sprout several independent limbs (e.g. a
   body with three claws).
 - **Group move** — box-select a cluster (a hand and all its fingers) and drag it
@@ -44,7 +46,10 @@ hanging rope your players can swing.
 - **Rigid bones** — segment lengths are captured when you build the chain and
   preserved while posing, with a one-click **Recalibrate** to re-measure.
 - **Bend limits** — optional per-joint angle constraints (e.g. a knee that only
-  bends one way), enforced by the solver while bone lengths stay fixed.
+  bends one way), enforced by the solver while bone lengths stay fixed. Set them
+  numerically in the sidebar or visually in the tool's **Limit bend** mode: click
+  a joint for an on-canvas dial — a filled wedge shows the allowed range, and two
+  handles drag to set its extents.
 - **Auto-rotate** — tokens rotate to face down their bone as the limb flexes
   (per-chain, with a tunable rotation offset for art that doesn't point "up").
 - **Permissions** — GM-only by default, with per-chain and per-node overrides so

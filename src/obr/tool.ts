@@ -12,10 +12,19 @@ import {
 import { shallowestSelectedPerBranch } from "../ik/tree";
 import {
   MODE_BUILD,
+  MODE_CONSTRAIN,
   MODE_POSE,
   TOOL_ID,
   asset,
 } from "./constants";
+import {
+  onConstrainClick,
+  onConstrainDragCancel,
+  onConstrainDragEnd,
+  onConstrainDragMove,
+  onConstrainDragStart,
+  onConstrainDeactivate,
+} from "./bendPicker";
 import { findChainForToken, getChains, saveChains, createChain, addNode } from "./chainStore";
 import { getPositions, isToken, radToObrDeg } from "./scene";
 import { refreshConnectors } from "./connectors";
@@ -322,5 +331,16 @@ export async function setupTool(): Promise<void> {
     icons: [{ icon: asset("build.svg"), label: "Build chain" }],
     onToolClick: onBuildClick,
     onDeactivate: onBuildDeactivate,
+  });
+
+  await OBR.tool.createMode({
+    id: MODE_CONSTRAIN,
+    icons: [{ icon: asset("constrain.svg"), label: "Limit bend" }],
+    onToolClick: onConstrainClick,
+    onToolDragStart: onConstrainDragStart,
+    onToolDragMove: onConstrainDragMove,
+    onToolDragEnd: onConstrainDragEnd,
+    onToolDragCancel: onConstrainDragCancel,
+    onDeactivate: onConstrainDeactivate,
   });
 }

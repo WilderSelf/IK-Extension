@@ -197,6 +197,7 @@ export function SidebarApp() {
           <li>Click a token to set the <strong>root</strong>, then click tokens outward to link them.</li>
           <li>Click an existing node to branch from it.</li>
           <li>Switch to <strong>Pose</strong> mode and drag any token — the chain flexes, root pinned.</li>
+          <li>In <strong>Limit bend</strong> mode, click a joint to set its bend range with the on-canvas dial.</li>
         </ol>
       </div>
 

@@ -44,6 +44,14 @@ export interface Chain {
    */
   nodes: Record<string, ChainNode>;
   settings: ChainSettings;
+  /**
+   * Optional link: the token id of a node in ANOTHER chain that this chain
+   * "follows". When that node moves (its owning chain is posed or translated),
+   * this whole chain is carried rigidly by the node's transform, so a sub-rig
+   * (e.g. a crab's pincher) rides along with its parent. The link is directional
+   * — posing this chain never moves the parent. Undefined = independent.
+   */
+  parentNodeId?: string;
 }
 
 /** Map of chainId -> Chain, as stored in scene metadata. */

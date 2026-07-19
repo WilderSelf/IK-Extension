@@ -4,11 +4,13 @@ import type { Chain, ChainMap } from "../types";
 import {
   buildChain,
   deleteChain,
+  findChainForToken,
   getChains,
   onChainsChange,
   orderedNodes,
   removeToken,
   saveChains,
+  setParentNode,
   updateSettings,
 } from "../obr/chainStore";
 import { getItemNames, getPositions, getRotations, getSelectedTokenIds, getSelection } from "../obr/scene";
@@ -85,15 +87,45 @@ export function SidebarApp() {
       setStatus("Select the tokens for the chain — root first, then outward — then click New chain from selection.");
       return;
     }
-    const [positions, rotations] = await Promise.all([getPositions(ids), getRotations(ids)]);
-    const built = buildChain(chains, ids, positions, rotations);
+    // If the first selected token is already in a chain, treat it as an ANCHOR:
+    // build the new chain from the remaining (unchained) tokens and link it to
+    // that node, so the sub-rig follows when the anchor's chain moves.
+    const anchor = findChainForToken(chains, ids[0]) ? ids[0] : null;
+    const buildIds = (anchor ? ids.slice(1) : ids).filter((id) => !findChainForToken(chains, id));
+    if (buildIds.length < 2) {
+      setStatus(
+        anchor
+          ? "To attach a sub-chain, select the anchor token first, then at least two new (unchained) tokens, root first."
+          : "Select at least two unchained tokens — root first, then outward.",
+      );
+      return;
+    }
+    const [positions, rotations] = await Promise.all([getPositions(buildIds), getRotations(buildIds)]);
+    const built = buildChain(chains, buildIds, positions, rotations);
     if (!built) {
       setStatus("Couldn't build a chain from that selection.");
       return;
     }
-    await patch(built[0]);
-    setStatus(`Built a ${ids.length}-token chain. Pick the IK Chains tool and drag a token to pose it.`);
+    const next = anchor ? setParentNode(built[0], built[1], anchor) : built[0];
+    await patch(next);
+    setStatus(
+      anchor
+        ? `Built a ${buildIds.length}-token sub-chain that follows ${names[anchor] ?? "the anchor"} and rides along with it.`
+        : `Built a ${buildIds.length}-token chain. Pick the IK Chains tool (or press ${POSE_SHORTCUT}) and drag a token to pose it.`,
+    );
   }
+
+  async function onAttach(chainId: string, parentTokenId: string) {
+    const next = setParentNode(chains, chainId, parentTokenId);
+    if (next === chains) {
+      setStatus("Can't attach there — select a single token that's in another chain (and not one that already follows this one).");
+      return;
+    }
+    await patch(next);
+    setStatus(`This chain now follows ${names[parentTokenId] ?? "that token"} — it rides along when that chain moves.`);
+  }
+
+  const onDetach = (chainId: string) => patch(setParentNode(chains, chainId, null));
 
   const list = Object.values(chains);
 
@@ -105,7 +137,9 @@ export function SidebarApp() {
         {" "}<strong>root first, then outward</strong>, then build the chain. Pick the
         {" "}<strong>IK Chains</strong> tool (or press <kbd>{POSE_SHORTCUT}</kbd>) and drag
         any token — the chain flexes with the root pinned. Drag the root to move the
-        whole thing.
+        whole thing. To make a sub-chain (a claw, a pincher) ride along with the main
+        one, select a token in the main chain <em>first</em>, then the sub-chain's
+        tokens, and build — or use a chain card's <strong>Attach</strong> button.
       </p>
 
       <button className="primary" onClick={onNewChain} disabled={!ready}>
@@ -133,6 +167,8 @@ export function SidebarApp() {
           names={names}
           selected={selected}
           onPatch={patch}
+          onAttach={onAttach}
+          onDetach={onDetach}
           onSelectNode={(id) => OBR.player.select([id], true).catch(() => {})}
         />
       ))}
@@ -146,6 +182,8 @@ function ChainCard({
   names,
   selected,
   onPatch,
+  onAttach,
+  onDetach,
   onSelectNode,
 }: {
   chain: Chain;
@@ -153,6 +191,8 @@ function ChainCard({
   names: Record<string, string>;
   selected: ReadonlySet<string>;
   onPatch: (next: ChainMap) => Promise<void>;
+  onAttach: (chainId: string, parentTokenId: string) => void;
+  onDetach: (chainId: string) => void;
   onSelectNode: (id: string) => void;
 }) {
   const nodes = orderedNodes(chain);
@@ -161,6 +201,16 @@ function ChainCard({
   const onDelete = () => onPatch(deleteChain(chains, chain.id));
   const onRemoveNode = (id: string) => onPatch(removeToken(chains, id));
   const setAutoRotate = (v: boolean) => onPatch(updateSettings(chains, chain.id, { autoRotate: v }));
+
+  // Attachment: a single selected token in ANOTHER chain can become this chain's
+  // parent node, so this chain rides along when that one moves.
+  const parentName = chain.parentNodeId
+    ? names[chain.parentNodeId] ?? chain.parentNodeId.slice(0, 8)
+    : undefined;
+  const sel = [...selected];
+  const attachTarget = sel.length === 1 ? sel[0] : undefined;
+  const targetOwner = attachTarget ? findChainForToken(chains, attachTarget) : undefined;
+  const canAttach = !!targetOwner && targetOwner.id !== chain.id;
 
   return (
     <div className="chain">
@@ -178,6 +228,27 @@ function ChainCard({
           checked={chain.settings.autoRotate}
           onChange={(e) => setAutoRotate(e.target.checked)} />
       </div>
+
+      {parentName ? (
+        <div className="row">
+          <span className="chain-sub" title="This chain follows that token and rides along when it moves">
+            ↳ Follows {parentName}
+          </span>
+          <button className="mini-btn icon-btn" title="Detach — stop following"
+            aria-label="Detach from parent" onClick={() => onDetach(chain.id)}>
+            <CloseIcon size={13} /> Detach
+          </button>
+        </div>
+      ) : (
+        <div className="row">
+          <span className="chain-sub">Follow another chain's token</span>
+          <button disabled={!canAttach}
+            title="Select one token that belongs to another chain, then attach — this chain will ride along with it"
+            onClick={() => attachTarget && onAttach(chain.id, attachTarget)}>
+            Attach to selection
+          </button>
+        </div>
+      )}
 
       <div className="nodes">
         <div className="nodes-title">Tokens</div>

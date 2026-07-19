@@ -12,6 +12,9 @@ export {
   pruneMissing,
   deleteChain,
   updateSettings,
+  setParentNode,
+  parentChainId,
+  descendantChainIds,
 } from "../model/chains";
 
 // ---- Persistence (scene metadata) -----------------------------------------

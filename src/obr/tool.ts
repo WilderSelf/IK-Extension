@@ -3,10 +3,10 @@ import OBR, {
   type ToolContext,
   type ToolEvent,
 } from "@owlbear-rodeo/sdk";
-import { type Chain, type Vec2, DEFAULT_ROTATION_OFFSET_DEG } from "../types";
-import { type Pose, rigidTranslate, solvePose } from "../ik/pose";
+import { type Chain, type ChainMap, type Vec2, DEFAULT_ROTATION_OFFSET_DEG } from "../types";
+import { type Grab, type Pose, poseRig } from "../ik/pose";
 import { MODE_POSE, POSE_SHORTCUT, TOOL_ID, asset } from "./constants";
-import { findChainForToken, getChains } from "./chainStore";
+import { descendantChainIds, findChainForToken, getChains } from "./chainStore";
 import { getPositions, radToObrDeg } from "./scene";
 import { dist } from "../ik/vec";
 
@@ -25,15 +25,21 @@ type InteractionUpdate = (draft: (items: Item[]) => void) => Item[];
 type InteractionStop = () => void;
 
 interface DragState {
-  chain: Chain;
+  // The posed chain plus every chain that (transitively) follows one of its
+  // nodes — the whole rig that moves together.
+  involved: ChainMap;
+  posedChainId: string;
   mode: "translate" | "solve";
   grabbedId: string;
+  /** token id -> the involved chain that owns it (for per-chain auto-rotate). */
+  tokenChainId: Record<string, string>;
+  /** every involved chain's root (roots are not auto-rotated). */
+  rootIds: Set<string>;
   basePositions: Record<string, Vec2>;
   startPointer: Vec2;
   ids: string[];
   update: InteractionUpdate;
   stop: InteractionStop;
-  autoRotate: boolean;
 }
 
 let drag: DragState | null = null;
@@ -45,9 +51,9 @@ let starting = false;
 let cancelledDuringStart = false;
 
 async function resolveGrabbed(
+  chains: ChainMap,
   event: ToolEvent,
 ): Promise<{ chain: Chain; grabbedId: string } | null> {
-  const chains = await getChains();
   const targetId = event.target?.id;
   if (targetId) {
     const chain = findChainForToken(chains, targetId);
@@ -72,12 +78,15 @@ async function resolveGrabbed(
 
 function computePose(state: DragState, pointer: Vec2): Pose {
   const delta = { x: pointer.x - state.startPointer.x, y: pointer.y - state.startPointer.y };
+  let grab: Grab;
   if (state.mode === "translate") {
-    return rigidTranslate(state.chain, state.basePositions, delta);
+    grab = { mode: "translate", delta };
+  } else {
+    const base = state.basePositions[state.grabbedId];
+    const target = base ? { x: base.x + delta.x, y: base.y + delta.y } : pointer;
+    grab = { mode: "solve", grabbedId: state.grabbedId, target };
   }
-  const base = state.basePositions[state.grabbedId];
-  const target = base ? { x: base.x + delta.x, y: base.y + delta.y } : pointer;
-  return solvePose(state.chain, state.basePositions, state.grabbedId, target);
+  return poseRig(state.involved, state.posedChainId, state.basePositions, grab);
 }
 
 function applyPose(state: DragState, pose: Pose, items: Item[]): void {
@@ -88,14 +97,15 @@ function applyPose(state: DragState, pose: Pose, items: Item[]): void {
     if (np && Number.isFinite(np.x) && Number.isFinite(np.y)) {
       item.position = { x: np.x, y: np.y };
     }
+    // Auto-rotate is per the token's OWN chain: honor that chain's setting, skip
+    // its root, and use the token's captured offset.
+    const chain = state.involved[state.tokenChainId[item.id]];
     if (
-      state.autoRotate &&
-      item.id !== state.chain.rootId &&
+      chain?.settings.autoRotate &&
+      !state.rootIds.has(item.id) &&
       pose.rotations[item.id] !== undefined
     ) {
-      // Prefer the per-node authored offset (captured at build); fall back to
-      // the global default for a node that somehow never captured one.
-      const off = state.chain.nodes[item.id]?.boneOffsetDeg ?? DEFAULT_ROTATION_OFFSET_DEG;
+      const off = chain.nodes[item.id]?.boneOffsetDeg ?? DEFAULT_ROTATION_OFFSET_DEG;
       item.rotation = radToObrDeg(pose.rotations[item.id], off);
     }
     // Note: we read/write position + rotation only, never `scale`, so a token's
@@ -112,13 +122,29 @@ async function onPoseDragStart(_ctx: ToolContext, event: ToolEvent): Promise<voi
     // too, so a player never even sees it).
     if ((await OBR.player.getRole()) !== "GM") return;
 
-    const grabbed = await resolveGrabbed(event);
+    const chains = await getChains();
+    const grabbed = await resolveGrabbed(chains, event);
     if (!grabbed) return;
     const { chain, grabbedId } = grabbed;
     const mode: "translate" | "solve" = grabbedId === chain.rootId ? "translate" : "solve";
 
-    const ids = Object.keys(chain.nodes);
-    const idSet = new Set(ids);
+    // The rig that moves together: the grabbed chain plus every chain that
+    // (transitively) follows one of its nodes.
+    const involvedIds = [chain.id, ...descendantChainIds(chains, chain.id)];
+    const involved: ChainMap = {};
+    const tokenChainId: Record<string, string> = {};
+    const rootIds = new Set<string>();
+    const idSet = new Set<string>();
+    for (const cid of involvedIds) {
+      const c = chains[cid];
+      involved[cid] = c;
+      rootIds.add(c.rootId);
+      for (const tid of Object.keys(c.nodes)) {
+        tokenChainId[tid] = cid;
+        idSet.add(tid);
+      }
+    }
+    const ids = [...idSet];
     const items = await OBR.scene.items.getItems((i) => idSet.has(i.id));
     const basePositions: Record<string, Vec2> = {};
     for (const it of items) basePositions[it.id] = { x: it.position.x, y: it.position.y };
@@ -136,15 +162,17 @@ async function onPoseDragStart(_ctx: ToolContext, event: ToolEvent): Promise<voi
     }
 
     drag = {
-      chain,
+      involved,
+      posedChainId: chain.id,
       mode,
       grabbedId,
+      tokenChainId,
+      rootIds,
       basePositions,
       startPointer: { x: event.pointerPosition.x, y: event.pointerPosition.y },
       ids,
       update,
       stop,
-      autoRotate: chain.settings.autoRotate,
     };
   } finally {
     starting = false;

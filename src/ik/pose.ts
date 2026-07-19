@@ -1,7 +1,12 @@
-import type { Chain, Vec2 } from "../types";
-import { orderedNodes } from "../model/chains";
+import type { Chain, ChainMap, Vec2 } from "../types";
+import { descendantChainIds, orderedNodes, parentChainId } from "../model/chains";
 import { solveChain, type SolveOptions } from "./fabrik";
 import { add, angle, dist, rotateAround, sub } from "./vec";
+
+/** How a chain is being dragged: its root (rigid translate) or a node (solve). */
+export type Grab =
+  | { mode: "translate"; delta: Vec2 }
+  | { mode: "solve"; grabbedId: string; target: Vec2 };
 
 /** Positions (and bone-angle rotations, in radians) for chain nodes. */
 export interface Pose {
@@ -83,6 +88,80 @@ export function solvePose(
   }
 
   return { positions: out, rotations: boneAngles(chain, out) };
+}
+
+/**
+ * Pose a whole rig: solve/translate the grabbed chain, then rigidly carry every
+ * chain that (transitively) follows one of its nodes, so a linked sub-rig (a
+ * crab's pincher) rides along with its parent. Returns positions + bone-angle
+ * rotations covering the posed chain AND all its descendants.
+ *
+ * `base` holds the pre-drag positions of every involved token (posed chain +
+ * descendants). Posing a chain never moves its ancestors — only descendants.
+ */
+export function poseRig(
+  chains: ChainMap,
+  posedChainId: string,
+  base: Record<string, Vec2>,
+  grab: Grab,
+  opts?: SolveOptions,
+): Pose {
+  const out: Record<string, Vec2> = { ...base };
+  const posed = chains[posedChainId];
+  if (posed) {
+    const solved =
+      grab.mode === "translate"
+        ? rigidTranslate(posed, base, grab.delta)
+        : solvePose(posed, base, grab.grabbedId, grab.target, opts);
+    Object.assign(out, solved.positions);
+  }
+
+  const descendants = descendantChainIds(chains, posedChainId);
+
+  // Bone angles per owning chain, cached (base is constant; `out` is final for a
+  // given owner by the time its children are processed — BFS is parent-first).
+  const baseAngles = new Map<string, Record<string, number>>();
+  const curAngles = new Map<string, Record<string, number>>();
+  const anglesOf = (
+    cache: Map<string, Record<string, number>>,
+    chainId: string,
+    pos: Record<string, Vec2>,
+  ): Record<string, number> => {
+    let a = cache.get(chainId);
+    if (!a) {
+      a = boneAngles(chains[chainId], pos);
+      cache.set(chainId, a);
+    }
+    return a;
+  };
+
+  for (const childId of descendants) {
+    const child = chains[childId];
+    const p = child.parentNodeId;
+    const ownerId = parentChainId(chains, childId);
+    if (!p || !ownerId || !(p in base) || !(p in out)) continue;
+    const owner = chains[ownerId];
+    // The parent node's rigid transform: translation, plus the turn of its
+    // incoming bone. A pinned root doesn't rotate (its "bone angle" tracks its
+    // first child, which would spin an attached sub-rig oddly), so use 0 there.
+    const trans = sub(out[p], base[p]);
+    const dRotRaw =
+      p === owner.rootId
+        ? 0
+        : anglesOf(curAngles, ownerId, out)[p] - anglesOf(baseAngles, ownerId, base)[p];
+    const dRot = Number.isFinite(dRotRaw) ? dRotRaw : 0;
+    for (const b of Object.keys(child.nodes)) {
+      const baseB = base[b];
+      if (!baseB) continue;
+      out[b] = rotateAround(add(baseB, trans), out[p], dRot);
+    }
+  }
+
+  const rotations: Record<string, number> = {};
+  for (const id of [posedChainId, ...descendants]) {
+    if (chains[id]) Object.assign(rotations, boneAngles(chains[id], out));
+  }
+  return { positions: out, rotations };
 }
 
 /**

@@ -4,10 +4,12 @@ import {
   buildChain,
   createChain,
   deleteChain,
+  descendantChainIds,
   findChainForToken,
   orderedNodes,
   pruneMissing,
   removeToken,
+  setParentNode,
   updateSettings,
 } from "./chains";
 
@@ -94,5 +96,63 @@ describe("findChainForToken / deleteChain", () => {
     const [map, id] = createChain({}, "root");
     expect(findChainForToken(map, "root")?.id).toBe(id);
     expect(deleteChain(map, id)).toEqual({});
+  });
+});
+
+describe("attachment (setParentNode / lifecycle)", () => {
+  // Chain A: A0-A1-A2. Chain B: B0-B1 (distinct tokens).
+  function twoChains(): ChainMap {
+    let map = buildChain({}, ["A0", "A1", "A2"], pos({ A0: [0, 0], A1: [10, 0], A2: [20, 0] }), { A0: 0, A1: 0, A2: 0 })![0];
+    map = buildChain(map, ["B0", "B1"], pos({ B0: [20, 5], B1: [30, 5] }), { B0: 0, B1: 0 })![0];
+    return map;
+  }
+  const idOf = (m: ChainMap, root: string) => Object.values(m).find((c) => c.rootId === root)!.id;
+
+  it("links a chain to a node of another chain", () => {
+    const map = twoChains();
+    const b = idOf(map, "B0");
+    expect(setParentNode(map, b, "A2")[b].parentNodeId).toBe("A2");
+  });
+
+  it("rejects attaching to the same chain or a non-existent token", () => {
+    const map = twoChains();
+    const b = idOf(map, "B0");
+    expect(setParentNode(map, b, "B1")).toBe(map); // same chain
+    expect(setParentNode(map, b, "ghost")).toBe(map); // not a node anywhere
+  });
+
+  it("rejects a cycle", () => {
+    let map = twoChains();
+    const a = idOf(map, "A0");
+    const b = idOf(map, "B0");
+    map = setParentNode(map, a, "B1"); // A follows B
+    expect(map[a].parentNodeId).toBe("B1");
+    expect(setParentNode(map, b, "A2")).toBe(map); // B->A would cycle
+  });
+
+  it("detaches when the parent chain is deleted", () => {
+    let map = twoChains();
+    const a = idOf(map, "A0");
+    const b = idOf(map, "B0");
+    map = setParentNode(map, b, "A2");
+    map = deleteChain(map, a);
+    expect(map[b].parentNodeId).toBeUndefined();
+  });
+
+  it("detaches when the parent node is pruned away", () => {
+    let map = twoChains();
+    const b = idOf(map, "B0");
+    map = setParentNode(map, b, "A2");
+    map = pruneMissing(map, new Set(["A0", "A1", "B0", "B1"])); // A2 gone
+    expect(map[b].parentNodeId).toBeUndefined();
+  });
+
+  it("lists descendant chains, nearest first", () => {
+    let map = twoChains();
+    const a = idOf(map, "A0");
+    const b = idOf(map, "B0");
+    map = setParentNode(map, b, "A1");
+    expect(descendantChainIds(map, a)).toEqual([b]);
+    expect(descendantChainIds(map, b)).toEqual([]);
   });
 });

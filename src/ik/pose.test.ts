@@ -1,9 +1,12 @@
 import { describe, it, expect } from "vitest";
-import type { Chain, Vec2 } from "../types";
+import type { Chain, ChainMap, Vec2 } from "../types";
 import { defaultSettings } from "../types";
-import { orderedNodes } from "../model/chains";
-import { boneAngles, rigidTranslate, solvePose } from "./pose";
+import { buildChain, orderedNodes, setParentNode } from "../model/chains";
+import { boneAngles, poseRig, rigidTranslate, solvePose } from "./pose";
 import { dist } from "./vec";
+
+const pos = (o: Record<string, [number, number]>): Record<string, Vec2> =>
+  Object.fromEntries(Object.entries(o).map(([k, [x, y]]) => [k, { x, y }]));
 
 function straightChain(): { chain: Chain; positions: Record<string, Vec2> } {
   const chain: Chain = {
@@ -72,5 +75,55 @@ describe("boneAngles", () => {
     const { chain, positions } = straightChain();
     const rot = boneAngles(chain, positions);
     for (const id of ["R", "A", "B", "C"]) expect(rot[id]).toBeCloseTo(0, 6);
+  });
+});
+
+describe("poseRig (linked chains)", () => {
+  // Main A: A0-A1-A2. Child B: B0-B1, attached to A2. Base positions for all.
+  function rig() {
+    let chains: ChainMap = buildChain({}, ["A0", "A1", "A2"],
+      pos({ A0: [0, 0], A1: [10, 0], A2: [20, 0] }), { A0: 0, A1: 0, A2: 0 })![0];
+    chains = buildChain(chains, ["B0", "B1"],
+      pos({ B0: [20, 10], B1: [30, 10] }), { B0: 0, B1: 0 })![0];
+    const aId = Object.values(chains).find((c) => c.rootId === "A0")!.id;
+    const bId = Object.values(chains).find((c) => c.rootId === "B0")!.id;
+    chains = setParentNode(chains, bId, "A2");
+    const base = pos({ A0: [0, 0], A1: [10, 0], A2: [20, 0], B0: [20, 10], B1: [30, 10] });
+    return { chains, aId, bId, base };
+  }
+
+  it("shifts the child by the same delta when the parent root is translated", () => {
+    const { chains, aId, base } = rig();
+    const { positions: out } = poseRig(chains, aId, base, { mode: "translate", delta: { x: 5, y: 7 } });
+    expect(out.A0).toEqual({ x: 5, y: 7 });
+    expect(out.B0).toEqual({ x: 25, y: 17 });
+    expect(out.B1).toEqual({ x: 35, y: 17 });
+  });
+
+  it("carries the child rigidly when the parent is posed (root pinned, child rigid)", () => {
+    const { chains, aId, base } = rig();
+    const { positions: out } = poseRig(chains, aId, base, { mode: "solve", grabbedId: "A2", target: { x: 10, y: 15 } });
+    expect(out.A0).toEqual({ x: 0, y: 0 }); // parent root pinned
+    // Child moved and stayed rigid (its own bone length preserved).
+    expect(dist(out.B0, base.B0)).toBeGreaterThan(1);
+    expect(dist(out.B0, out.B1)).toBeCloseTo(10, 5);
+  });
+
+  it("does not move the parent when the child is posed alone", () => {
+    const { chains, bId, base } = rig();
+    const { positions: out } = poseRig(chains, bId, base, { mode: "solve", grabbedId: "B1", target: { x: 35, y: 25 } });
+    expect(out.A0).toEqual({ x: 0, y: 0 });
+    expect(out.A2).toEqual({ x: 20, y: 0 });
+  });
+
+  it("carries a grandchild two levels down", () => {
+    let { chains, aId, base } = rig();
+    chains = buildChain(chains, ["C0", "C1"], pos({ C0: [30, 20], C1: [40, 20] }), { C0: 0, C1: 0 })![0];
+    const cId = Object.values(chains).find((c) => c.rootId === "C0")!.id;
+    chains = setParentNode(chains, cId, "B1"); // C follows B, B follows A
+    base = pos({ A0: [0, 0], A1: [10, 0], A2: [20, 0], B0: [20, 10], B1: [30, 10], C0: [30, 20], C1: [40, 20] });
+    const { positions: out } = poseRig(chains, aId, base, { mode: "translate", delta: { x: 3, y: -2 } });
+    expect(out.C0).toEqual({ x: 33, y: 18 });
+    expect(out.C1).toEqual({ x: 43, y: 18 });
   });
 });

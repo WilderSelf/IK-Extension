@@ -38,6 +38,14 @@ body {
   overflow-y: auto;
 }
 
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
 h1 {
   font-size: 15px;
   margin: 0 0 4px;
@@ -50,9 +58,54 @@ h1 {
   margin: 0 0 12px;
 }
 
-.hint ol {
-  margin: 6px 0 0;
-  padding-left: 18px;
+button {
+  font: inherit;
+  border: 1px solid var(--ik-border);
+  background: transparent;
+  color: inherit;
+  border-radius: 6px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--ik-hover);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* The primary call-to-action: build a chain from the current selection. */
+button.primary {
+  display: block;
+  width: 100%;
+  margin-bottom: 12px;
+  padding: 7px 8px;
+  font-weight: 600;
+  border-color: var(--ik-primary);
+  background: var(--ik-primary-soft);
+  color: var(--ik-text);
+}
+
+button.danger {
+  border-color: var(--ik-danger-border);
+  color: var(--ik-danger);
+}
+
+/* Keyboard focus ring uses the theme accent so it reads on any palette. Mouse
+   clicks don't trigger it (focus-visible), so it stays out of the way. */
+button:focus-visible,
+input:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--ik-primary);
+  outline-offset: 2px;
+}
+
+.empty {
+  color: var(--ik-text-secondary);
+  font-style: italic;
 }
 
 .chain {
@@ -73,6 +126,9 @@ h1 {
 
 .chain-title {
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .chain-sub {
@@ -92,55 +148,6 @@ h1 {
   font-size: 13px;
 }
 
-button {
-  font: inherit;
-  border: 1px solid var(--ik-border);
-  background: transparent;
-  color: inherit;
-  border-radius: 6px;
-  padding: 4px 8px;
-  cursor: pointer;
-}
-
-button.danger {
-  border-color: var(--ik-danger-border);
-  color: var(--ik-danger);
-}
-
-button:hover {
-  background: var(--ik-hover);
-}
-
-button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-/* Keyboard focus ring uses the theme accent so it reads on any palette. Mouse
-   clicks don't trigger it (focus-visible), so it stays out of the way. */
-button:focus-visible,
-input:focus-visible,
-[tabindex]:focus-visible {
-  outline: 2px solid var(--ik-primary);
-  outline-offset: 2px;
-}
-
-.empty {
-  color: var(--ik-text-secondary);
-  font-style: italic;
-}
-
-.num {
-  width: 64px;
-  font: inherit;
-  color: inherit;
-  background: transparent;
-  border: 1px solid var(--ik-border);
-  border-radius: 6px;
-  padding: 2px 6px;
-  text-align: right;
-}
-
 .nodes {
   margin-top: 10px;
   border-top: 1px solid var(--ik-border);
@@ -157,7 +164,6 @@ input:focus-visible,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
   gap: 8px;
   padding: 2px 0;
   border-radius: 6px;
@@ -167,24 +173,6 @@ input:focus-visible,
 .node.selected {
   background: var(--ik-primary-soft);
   outline: 1px solid var(--ik-primary);
-}
-
-.node-bend {
-  flex-basis: 100%;
-  display: flex;
-  justify-content: flex-end;
-  gap: 12px;
-}
-
-.num-sm {
-  width: 48px;
-  font: inherit;
-  color: inherit;
-  background: transparent;
-  border: 1px solid var(--ik-border);
-  border-radius: 6px;
-  padding: 1px 4px;
-  text-align: right;
 }
 
 .node-main {
@@ -246,18 +234,6 @@ input:focus-visible,
   flex: none;
 }
 
-.mini {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 11px;
-  color: var(--ik-text-secondary);
-}
-
-.mini input {
-  margin: 0;
-}
-
 .mini-btn {
   padding: 1px 6px;
   font-size: 12px;
@@ -297,61 +273,6 @@ input:focus-visible,
   border-radius: 4px;
   display: inline-flex;
   cursor: pointer;
-}
-
-.preset-input {
-  flex: 1;
-  min-width: 0;
-  font: inherit;
-  color: inherit;
-  background: transparent;
-  border: 1px solid var(--ik-border);
-  border-radius: 6px;
-  padding: 2px 6px;
-}
-
-.presets {
-  margin-top: 12px;
-  border-top: 1px solid var(--ik-border);
-  padding-top: 8px;
-}
-
-.presets-title {
-  font-size: 13px;
-  font-weight: 600;
-  margin-bottom: 4px;
-}
-
-.preset-row {
-  gap: 8px;
-}
-
-.preset-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-width: 0;
-}
-
-.preset-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: none;
-}
-
-.app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.undo-redo {
-  display: inline-flex;
-  gap: 6px;
-  flex: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

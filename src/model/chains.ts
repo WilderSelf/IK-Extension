@@ -1,24 +1,38 @@
 /**
  * Pure chain-model operations. No Owlbear SDK imports, so these are fully
  * unit-testable. `chainStore.ts` re-exports them alongside its OBR persistence.
+ *
+ * A chain is a single LINEAR strand: one pinned root, each subsequent node
+ * parented to the one before it, no branching.
  */
-import {
-  type Chain,
-  type ChainMap,
-  type JointConstraint,
-  type NodeOverride,
-  defaultSettings,
-} from "../types";
+import { type Chain, type ChainMap, type ChainNode, type Vec2, defaultSettings } from "../types";
 
-const clone = (chains: ChainMap): ChainMap =>
-  JSON.parse(JSON.stringify(chains)) as ChainMap;
+const clone = (chains: ChainMap): ChainMap => JSON.parse(JSON.stringify(chains)) as ChainMap;
 
 /** Find the chain that contains `tokenId`, if any. */
-export function findChainForToken(
-  chains: ChainMap,
-  tokenId: string,
-): Chain | undefined {
+export function findChainForToken(chains: ChainMap, tokenId: string): Chain | undefined {
   return Object.values(chains).find((c) => tokenId in c.nodes);
+}
+
+/**
+ * Node ids from the root outward, in strand order. Follows the single
+ * parent->child link at each step; guarded against cycles so malformed metadata
+ * can't hang a traversal.
+ */
+export function orderedNodes(chain: Chain): string[] {
+  const childOf: Record<string, string> = {};
+  for (const [id, node] of Object.entries(chain.nodes)) {
+    if (node.parentId != null) childOf[node.parentId] = id;
+  }
+  const order: string[] = [];
+  const seen = new Set<string>();
+  let cur: string | undefined = chain.rootId;
+  while (cur && cur in chain.nodes && !seen.has(cur)) {
+    seen.add(cur);
+    order.push(cur);
+    cur = childOf[cur];
+  }
+  return order;
 }
 
 /** Create a new chain rooted at `tokenId`. Returns [map, chainId]. */
@@ -41,9 +55,8 @@ export function createChain(chains: ChainMap, tokenId: string): [ChainMap, strin
 }
 
 /**
- * Link `tokenId` under `parentId` in `chainId`, capturing `restLength` and,
- * when provided, the token's authored `boneOffsetDeg` (rotation relative to its
- * incoming bone) so auto-rotate preserves its orientation while posing.
+ * Append `tokenId` under `parentId` in `chainId`, capturing `restLength` and,
+ * when provided, the token's authored `boneOffsetDeg`.
  */
 export function addNode(
   chains: ChainMap,
@@ -62,9 +75,45 @@ export function addNode(
 }
 
 /**
- * Remove a token from whichever chain contains it. Removing the root deletes
- * the whole chain; removing an interior node re-parents its children to that
- * node's parent (keeping the branch connected).
+ * Build a whole linear chain from an ordered list of token ids (root first,
+ * then outward). Rest lengths come from `positions`; each non-root node's
+ * `boneOffsetDeg` from its `rotations` relative to the measured bone. Returns
+ * [map, chainId], or null if there are fewer than 2 ids or the list has
+ * duplicates.
+ */
+export function buildChain(
+  chains: ChainMap,
+  orderedIds: string[],
+  positions: Record<string, Vec2>,
+  rotations: Record<string, number>,
+): [ChainMap, string] | null {
+  if (orderedIds.length < 2) return null;
+  if (new Set(orderedIds).size !== orderedIds.length) return null;
+  const [root, ...rest] = orderedIds;
+  const created = createChain(chains, root);
+  let map = created[0];
+  const id = created[1];
+  let parent = root;
+  for (const tokenId of rest) {
+    const a = positions[parent];
+    const b = positions[tokenId];
+    const restLength = a && b ? Math.hypot(b.x - a.x, b.y - a.y) : 0;
+    let boneOffsetDeg: number | undefined;
+    if (a && b && rotations[tokenId] !== undefined) {
+      // Bone angle parent->node in degrees, matching ik/vec `angle` + boneAngles.
+      const boneDeg = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+      boneOffsetDeg = rotations[tokenId] - boneDeg;
+    }
+    map = addNode(map, id, tokenId, parent, restLength, boneOffsetDeg);
+    parent = tokenId;
+  }
+  return [map, id];
+}
+
+/**
+ * Remove `tokenId` from whichever chain contains it. Removing the root deletes
+ * the whole chain; removing an interior node cuts the linear strand there,
+ * dropping that node and everything past it.
  */
 export function removeToken(chains: ChainMap, tokenId: string): ChainMap {
   const chain = findChainForToken(chains, tokenId);
@@ -75,48 +124,36 @@ export function removeToken(chains: ChainMap, tokenId: string): ChainMap {
     delete next[chain.id];
     return next;
   }
-  const removed = c.nodes[tokenId];
-  for (const node of Object.values(c.nodes)) {
-    if (node.parentId === tokenId) node.parentId = removed.parentId;
-  }
-  delete c.nodes[tokenId];
+  const order = orderedNodes(c);
+  const idx = order.indexOf(tokenId);
+  if (idx < 0) return chains;
+  const nodes: Record<string, ChainNode> = {};
+  for (let i = 0; i < idx; i++) nodes[order[i]] = c.nodes[order[i]];
+  c.nodes = nodes;
   return next;
 }
 
 /**
- * Drop nodes whose token no longer exists in the scene, and delete any chain
- * whose root token is gone (an empty chain has no root either). A chain that
- * still has only its root is a valid in-progress chain and is kept.
+ * Drop the trailing part of any strand whose token no longer exists in the
+ * scene, and delete a chain whose root token is gone. A linear strand can't skip
+ * a hole, so everything past the first missing token is dropped; a lone
+ * surviving root is a valid in-progress chain and is kept.
  */
 export function pruneMissing(chains: ChainMap, existingIds: Set<string>): ChainMap {
-  const next = clone(chains);
-  for (const [chainId, chain] of Object.entries(next)) {
-    // Fold removals cumulatively: each call must build on the previous result,
-    // not re-derive from the original `chain`, or only the LAST missing token in
-    // a chain gets pruned and the earlier ones linger as dangling references.
-    let c = chain;
-    for (const tokenId of Object.keys(chain.nodes)) {
-      if (!existingIds.has(tokenId)) c = removeTokenFromChain(c, tokenId);
+  const next: ChainMap = {};
+  for (const [chainId, chain] of Object.entries(chains)) {
+    const order = orderedNodes(chain);
+    const keep: string[] = [];
+    for (const id of order) {
+      if (!existingIds.has(id)) break;
+      keep.push(id);
     }
-    // Delete only when the root itself is gone (covers the empty case too). A
-    // lone root with no children yet is a valid in-progress chain and is kept.
-    if (!c.nodes[c.rootId]) delete next[chainId];
-    else next[chainId] = c;
+    if (keep.length === 0) continue; // root gone -> drop the chain entirely
+    const nodes: Record<string, ChainNode> = {};
+    for (const id of keep) nodes[id] = chain.nodes[id];
+    next[chainId] = { ...chain, nodes };
   }
   return next;
-}
-
-function removeTokenFromChain(chain: Chain, tokenId: string): Chain {
-  if (chain.rootId === tokenId) {
-    return { ...chain, nodes: {} };
-  }
-  const removed = chain.nodes[tokenId];
-  const nodes = { ...chain.nodes };
-  for (const [id, node] of Object.entries(nodes)) {
-    if (node.parentId === tokenId) nodes[id] = { ...node, parentId: removed?.parentId ?? null };
-  }
-  delete nodes[tokenId];
-  return { ...chain, nodes };
 }
 
 /** Delete an entire chain. */
@@ -126,37 +163,7 @@ export function deleteChain(chains: ChainMap, chainId: string): ChainMap {
   return next;
 }
 
-/**
- * Re-capture rest lengths from current token positions, and — when `rotations`
- * are supplied — each node's `boneOffsetDeg` from its current rotation relative
- * to its (freshly measured) incoming bone. This is how an existing chain adopts
- * orientation preservation: re-orient the tokens by hand, then Recalibrate.
- */
-export function recalibrate(
-  chains: ChainMap,
-  chainId: string,
-  positions: Record<string, { x: number; y: number }>,
-  rotations?: Record<string, number>,
-): ChainMap {
-  const next = clone(chains);
-  const chain = next[chainId];
-  if (!chain) return chains;
-  for (const [id, node] of Object.entries(chain.nodes)) {
-    if (!node.parentId) continue;
-    const a = positions[node.parentId];
-    const b = positions[id];
-    if (!a || !b) continue;
-    node.restLength = Math.hypot(a.x - b.x, a.y - b.y);
-    if (rotations && rotations[id] !== undefined) {
-      // Bone angle parent->node in degrees, matching ik/vec `angle` + boneAngles.
-      const boneDeg = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
-      node.boneOffsetDeg = rotations[id] - boneDeg;
-    }
-  }
-  return next;
-}
-
-/** Merge partial settings into a chain. */
+/** Merge partial settings into a chain (currently just `autoRotate`). */
 export function updateSettings(
   chains: ChainMap,
   chainId: string,
@@ -165,46 +172,5 @@ export function updateSettings(
   const next = clone(chains);
   if (!next[chainId]) return chains;
   next[chainId].settings = { ...next[chainId].settings, ...patch };
-  return next;
-}
-
-/**
- * Set or clear a node's bend limit. Passing `null` removes the constraint.
- * Constraints on the root are ignored by the solver (no reference bone), but we
- * store whatever is asked and let the UI gate where it is offered.
- */
-export function setNodeConstraint(
-  chains: ChainMap,
-  chainId: string,
-  tokenId: string,
-  constraint: JointConstraint | null,
-): ChainMap {
-  const next = clone(chains);
-  const chain = next[chainId];
-  if (!chain || !(tokenId in chain.nodes)) return chains;
-  if (constraint === null) delete chain.nodes[tokenId].constraint;
-  else chain.nodes[tokenId].constraint = constraint;
-  return next;
-}
-
-/** Merge a per-node override (e.g. player-movable / locked) for one token. */
-export function setNodeOverride(
-  chains: ChainMap,
-  chainId: string,
-  tokenId: string,
-  patch: Partial<NodeOverride>,
-): ChainMap {
-  const next = clone(chains);
-  const chain = next[chainId];
-  if (!chain || !(tokenId in chain.nodes)) return chains;
-  const overrides = { ...(chain.settings.nodeOverrides ?? {}) };
-  const current = { ...(overrides[tokenId] ?? {}) };
-  for (const [k, v] of Object.entries(patch)) {
-    if (v === undefined) delete (current as Record<string, unknown>)[k];
-    else (current as Record<string, unknown>)[k] = v;
-  }
-  if (Object.keys(current).length === 0) delete overrides[tokenId];
-  else overrides[tokenId] = current;
-  chain.settings.nodeOverrides = overrides;
   return next;
 }

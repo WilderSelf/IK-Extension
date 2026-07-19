@@ -1,11 +1,11 @@
 /**
  * Inline icon set drawn from Phosphor Icons (regular weight), MIT licensed
  * (https://github.com/phosphor-icons/core). Paths are inlined rather than
- * pulled from a runtime dependency so the sidebar stays dependency-light and
- * works inside Owlbear's sandboxed popover with no external asset requests.
+ * pulled from a runtime dependency so the popover stays dependency-light and
+ * works inside Owlbear's sandboxed iframe with no external asset requests.
  *
- * Every icon inherits `currentColor` and is marked aria-hidden — callers give
- * the surrounding control its own accessible name (aria-label / visible text).
+ * Every icon inherits `currentColor` and is aria-hidden — callers give the
+ * surrounding control its own accessible name (aria-label / visible text).
  */
 import type { ReactNode, SVGProps } from "react";
 
@@ -37,25 +37,7 @@ export function AnchorIcon(props: IconProps) {
   );
 }
 
-/** Phosphor "arrow-counter-clockwise" — undo. */
-export function UndoIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="M224,128a96,96,0,0,1-94.71,96H128A95.38,95.38,0,0,1,62.1,197.8a8,8,0,0,1,11-11.63A80,80,0,1,0,71.43,71.39a3.07,3.07,0,0,1-.26.25L44.59,96H72a8,8,0,0,1,0,16H24a8,8,0,0,1-8-8V56a8,8,0,0,1,16,0V85.8L60.25,60A96,96,0,0,1,224,128Z" />
-    </Icon>
-  );
-}
-
-/** Phosphor "arrow-clockwise" — redo. */
-export function RedoIcon(props: IconProps) {
-  return (
-    <Icon {...props}>
-      <path d="M240,56v48a8,8,0,0,1-8,8H184a8,8,0,0,1,0-16H211.4L184.81,71.64l-.25-.24a80,80,0,1,0-1.67,114.78,8,8,0,0,1,11,11.63A95.44,95.44,0,0,1,128,224h-1.32A96,96,0,1,1,195.75,60L224,85.8V56a8,8,0,1,1,16,0Z" />
-    </Icon>
-  );
-}
-
-/** Phosphor "x" — close / remove. */
+/** Phosphor "x" — remove / close. */
 export function CloseIcon(props: IconProps) {
   return (
     <Icon {...props}>
@@ -64,7 +46,7 @@ export function CloseIcon(props: IconProps) {
   );
 }
 
-/** Phosphor "caret-right" — a nested (child) node in the tree. */
+/** Phosphor "caret-right" — a non-root node in the strand list. */
 export function CaretRightIcon(props: IconProps) {
   return (
     <Icon {...props}>

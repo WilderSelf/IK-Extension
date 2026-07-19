@@ -24,11 +24,11 @@ version is preserved at the git tag `v0.6-full`.
   whole chain.
 - **Auto-rotate.** Tokens rotate to face along their bone as the chain flexes,
   keeping the orientation you built them with.
-- **Linked sub-chains.** A chain can be *attached* to a node of another chain so it
-  rides along when that one moves — a crab's pincher on an arm — while still posing
-  independently (opening the pincher doesn't move the arm). Build the sub-chain
-  anchor-first (select a token of the main chain, then the sub-chain's tokens), or use
-  a chain card's **Attach to selection** button.
+- **Linked sub-chains.** Build a sub-chain *anchor-first* — select a token of the main
+  chain, then the new tokens — and that anchor becomes the sub-chain's **pivot**: its
+  segments flex off it, and the whole sub-chain rides along when the main chain moves,
+  while still posing on its own (opening a pincher doesn't move the arm). A chain card's
+  **Attach to selection** button links an existing chain to a node so it rides along too.
 - **Persist & sync.** Chains live in the scene's metadata, so they survive reloads
   and sync to every connected client. Deleting a token trims it (and anything past
   it) from its chain.

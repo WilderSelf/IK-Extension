@@ -9,9 +9,21 @@ import { type Chain, type ChainMap, type ChainNode, type Vec2, defaultSettings }
 
 const clone = (chains: ChainMap): ChainMap => JSON.parse(JSON.stringify(chains)) as ChainMap;
 
-/** Find the chain that contains `tokenId`, if any. */
+/**
+ * Find the chain that contains `tokenId`, if any. A token can be a segment of
+ * one chain AND the shared root/pivot of a sub-chain attached there — prefer the
+ * chain where it's a real (non-root) segment, since that's the chain it "belongs"
+ * to for posing and editing.
+ */
 export function findChainForToken(chains: ChainMap, tokenId: string): Chain | undefined {
-  return Object.values(chains).find((c) => tokenId in c.nodes);
+  let rootMatch: Chain | undefined;
+  for (const c of Object.values(chains)) {
+    if (tokenId in c.nodes) {
+      if (c.rootId !== tokenId) return c;
+      rootMatch ??= c;
+    }
+  }
+  return rootMatch;
 }
 
 /**

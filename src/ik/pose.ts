@@ -159,7 +159,15 @@ export function poseRig(
 
   const rotations: Record<string, number> = {};
   for (const id of [posedChainId, ...descendants]) {
-    if (chains[id]) Object.assign(rotations, boneAngles(chains[id], out));
+    const chain = chains[id];
+    if (!chain) continue;
+    const angles = boneAngles(chain, out);
+    // Skip each chain's own root: a node that is a segment of its parent AND the
+    // shared root of a child must keep the parent's (segment) angle, not the
+    // child's root-facing one. Roots aren't auto-rotated anyway.
+    for (const [tid, a] of Object.entries(angles)) {
+      if (tid !== chain.rootId) rotations[tid] = a;
+    }
   }
   return { positions: out, rotations };
 }

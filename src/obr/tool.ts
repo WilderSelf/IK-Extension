@@ -33,8 +33,6 @@ interface DragState {
   grabbedId: string;
   /** token id -> the involved chain that owns it (for per-chain auto-rotate). */
   tokenChainId: Record<string, string>;
-  /** every involved chain's root (roots are not auto-rotated). */
-  rootIds: Set<string>;
   basePositions: Record<string, Vec2>;
   startPointer: Vec2;
   ids: string[];
@@ -102,7 +100,7 @@ function applyPose(state: DragState, pose: Pose, items: Item[]): void {
     const chain = state.involved[state.tokenChainId[item.id]];
     if (
       chain?.settings.autoRotate &&
-      !state.rootIds.has(item.id) &&
+      item.id !== chain.rootId &&
       pose.rotations[item.id] !== undefined
     ) {
       const off = chain.nodes[item.id]?.boneOffsetDeg ?? DEFAULT_ROTATION_OFFSET_DEG;
@@ -133,14 +131,15 @@ async function onPoseDragStart(_ctx: ToolContext, event: ToolEvent): Promise<voi
     const involvedIds = [chain.id, ...descendantChainIds(chains, chain.id)];
     const involved: ChainMap = {};
     const tokenChainId: Record<string, string> = {};
-    const rootIds = new Set<string>();
     const idSet = new Set<string>();
     for (const cid of involvedIds) {
       const c = chains[cid];
       involved[cid] = c;
-      rootIds.add(c.rootId);
       for (const tid of Object.keys(c.nodes)) {
-        tokenChainId[tid] = cid;
+        // First chain wins: the posed chain is processed first, so a token that
+        // is also a child's shared pivot is attributed to the chain it's a
+        // segment of (which auto-rotates it correctly).
+        if (!(tid in tokenChainId)) tokenChainId[tid] = cid;
         idSet.add(tid);
       }
     }
@@ -167,7 +166,6 @@ async function onPoseDragStart(_ctx: ToolContext, event: ToolEvent): Promise<voi
       mode,
       grabbedId,
       tokenChainId,
-      rootIds,
       basePositions,
       startPointer: { x: event.pointerPosition.x, y: event.pointerPosition.y },
       ids,

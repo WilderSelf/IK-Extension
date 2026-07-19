@@ -74,6 +74,12 @@ export interface ChainNode {
    * (no incoming bone to measure against) never carry one. Undefined = free.
    */
   limit?: BendLimit;
+  /**
+   * Optional display name shown in the popover (e.g. "Knee"). Cosmetic;
+   * undefined falls back to the token's scene name. Does not rename the Owlbear
+   * item.
+   */
+  name?: string;
 }
 
 export interface ChainSettings {
@@ -91,6 +97,11 @@ export interface Chain {
   id: string;
   /** Token item id of the pinned root. */
   rootId: string;
+  /**
+   * Optional display name shown in the popover (e.g. "Leg"). Cosmetic; undefined
+   * falls back to the root token's scene name. Does not rename the Owlbear item.
+   */
+  name?: string;
   /**
    * All nodes, including the root, keyed by token item id. A chain is a single
    * LINEAR strand: every non-root node has exactly one parent and each node has

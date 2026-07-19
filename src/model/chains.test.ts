@@ -153,6 +153,43 @@ describe("stiffness (setNodeStiffness / effectiveStiffness)", () => {
     setNodeStiffness(map, "A", "stiff");
     expect(JSON.stringify(map)).toEqual(snapshot);
   });
+
+  it("accepts the two new mid stops (soft/firm)", () => {
+    const [map, id] = build();
+    expect(effectiveStiffness(setNodeStiffness(map, "A", "soft")[id], "A")).toBe("soft");
+    expect(effectiveStiffness(setNodeStiffness(map, "A", "firm")[id], "A")).toBe("firm");
+  });
+});
+
+describe("stiffness ease ramp", () => {
+  // R-A-B-C-D: four movable joints, so the ramp lands on distinct stops.
+  const build5 = () =>
+    buildChain({}, ["R", "A", "B", "C", "D"],
+      pos({ R: [0, 0], A: [10, 0], B: [20, 0], C: [30, 0], D: [40, 0] }),
+      { R: 0, A: 0, B: 0, C: 0, D: 0 })!;
+
+  it("ramps stiff at the base to loose at the tip", () => {
+    let [map, id] = build5();
+    map = updateSettings(map, id, { ease: true });
+    expect(effectiveStiffness(map[id], "A")).toBe("stiff"); // base
+    expect(effectiveStiffness(map[id], "B")).toBe("firm");
+    expect(effectiveStiffness(map[id], "C")).toBe("soft");
+    expect(effectiveStiffness(map[id], "D")).toBe("loose"); // tip
+  });
+
+  it("lets a per-token override win over the ramp", () => {
+    let [map, id] = build5();
+    map = updateSettings(map, id, { ease: true });
+    map = setNodeStiffness(map, "A", "loose");
+    expect(effectiveStiffness(map[id], "A")).toBe("loose"); // override, not the ramp's "stiff"
+    expect(effectiveStiffness(map[id], "D")).toBe("loose"); // still ramped
+  });
+
+  it("leaves a single movable joint stiff", () => {
+    let [map, id] = buildChain({}, ["R", "A"], pos({ R: [0, 0], A: [10, 0] }), { R: 0, A: 0 })!;
+    map = updateSettings(map, id, { ease: true });
+    expect(effectiveStiffness(map[id], "A")).toBe("stiff");
+  });
 });
 
 describe("bend limits (capture / clear / expand)", () => {

@@ -407,47 +407,50 @@ kbd {
   white-space: nowrap;
 }
 
-/* Three-way Loose/Normal/Stiff segmented control. */
-.seg {
-  display: inline-flex;
+/* 5-point Loose…Stiff stiffness slider. */
+.stiff-block {
+  padding: 2px 0;
+}
+
+.stiff-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.stiff-field > label {
   flex: none;
-  border: 1px solid var(--ik-border);
-  border-radius: 6px;
-  overflow: hidden;
+  font-size: 13px;
 }
 
-.seg button {
-  border: none;
-  border-right: 1px solid var(--ik-border);
-  border-radius: 0;
-  padding: 3px 9px;
-  font-size: 12px;
-  line-height: 1.2;
+.stiff {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.stiff input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 18px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--ik-primary);
+}
+
+/* Inherited (no per-token override / following the ease ramp): quieter thumb. */
+.stiff.inherited input[type="range"] {
+  accent-color: var(--ik-text-secondary);
+  opacity: 0.75;
+}
+
+.stiff-end {
+  flex: none;
+  font-size: 10px;
   color: var(--ik-text-secondary);
-  background: transparent;
-}
-
-.seg button:last-child {
-  border-right: none;
-}
-
-.seg button.active {
-  background: var(--ik-primary-soft);
-  color: var(--ik-text);
-  font-weight: 600;
-}
-
-/* Inherited (no per-token override): the active segment reads as a quiet hint
-   rather than a committed choice. */
-.seg.inherited button.active {
-  background: var(--ik-hover);
-  color: var(--ik-text-secondary);
-  font-weight: 400;
-}
-
-.seg.mini button {
-  padding: 1px 7px;
-  font-size: 11px;
 }
 
 /* Captured bend-limit controls (capture / cancel / clear + guidance line). */

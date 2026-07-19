@@ -13,14 +13,28 @@ export interface Vec2 {
 }
 
 /**
- * How much a bone resists bending as the chain is posed. A *relative* setting:
- * a stiffer joint keeps its angle so the reach demand is absorbed by the looser
- * joints around it (stiff base, floppy tip). `normal` reproduces plain FABRIK
- * exactly; `stiff` damps the joint's turn; `loose` sheds bend a touch more
- * eagerly than its neighbours. It is resistance, not a lock — drag far enough
- * and a stiff joint still gives. See `STIFFNESS_RETENTION` for the mapping.
+ * How much a bone resists bending as the chain is posed, on a 5-point scale. A
+ * *relative* setting: a stiffer joint keeps its angle so the reach demand is
+ * absorbed by the looser joints around it (stiff base, floppy tip). `normal` is
+ * the neutral midpoint and reproduces plain FABRIK exactly; toward `stiff` damps
+ * the joint's turn, toward `loose` sheds bend more eagerly than its neighbours.
+ * Resistance, not a lock — drag far enough and a stiff joint still gives.
+ * `loose`/`normal`/`stiff` are the low/mid/high stops that earlier versions
+ * stored, so old scene data stays valid. See `STIFFNESS_RETENTION`.
  */
-export type Stiffness = "loose" | "normal" | "stiff";
+export type Stiffness = "loose" | "soft" | "normal" | "firm" | "stiff";
+
+/** The five stiffness stops, loosest → stiffest — the slider's 0…4 positions. */
+export const STIFFNESS_ORDER: Stiffness[] = ["loose", "soft", "normal", "firm", "stiff"];
+
+/** Human labels for each stop (tooltip / aria-valuetext); numberless by design. */
+export const STIFFNESS_LABELS: Record<Stiffness, string> = {
+  loose: "Loose",
+  soft: "Soft",
+  normal: "Normal",
+  firm: "Firm",
+  stiff: "Stiff",
+};
 
 /**
  * Per-bone relaxation *retention* fed to the solver, keyed by `Stiffness`. In
@@ -29,11 +43,14 @@ export type Stiffness = "loose" | "normal" | "stiff";
  * (stiff), negative = mild over-relaxation (loose sheds bend faster). All values
  * keep the relaxation factor `(1 - retention)` inside the stable (0, 2) range.
  * `normal` is exactly 0 so a chain of all-normal joints is byte-identical to the
- * unweighted solver.
+ * unweighted solver. `soft`/`firm` fill the gaps between the original three
+ * stops so the ramp reads smoothly (the normal→stiff step used to feel abrupt).
  */
 export const STIFFNESS_RETENTION: Record<Stiffness, number> = {
   loose: -0.4,
+  soft: -0.2,
   normal: 0,
+  firm: 0.35,
   stiff: 0.7,
 };
 
@@ -91,6 +108,12 @@ export interface ChainSettings {
    * `normal` (plain FABRIK) rather than needing a data migration.
    */
   defaultStiffness?: Stiffness;
+  /**
+   * When true, ignore `defaultStiffness` and ramp stiffness by position instead
+   * — stiff at the base, easing to loose at the tip — for a natural tail/tentacle
+   * fall-off. A node's own `stiffness` override still wins over the ramp.
+   */
+  ease?: boolean;
 }
 
 export interface Chain {

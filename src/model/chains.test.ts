@@ -11,6 +11,9 @@ import {
   chainHasLimits,
   chainCanLimit,
   hasDefaultLimit,
+  hasAnchorLimit,
+  isExternallyAnchored,
+  setAnchorLimit,
   isLimitable,
   limitableTokens,
   effectiveLimit,
@@ -390,6 +393,37 @@ describe("bend limits (chain default + per-token override)", () => {
     setNodeLimit(map, id, "B", { min: 0, max: 1 });
     clearLimits(map, id);
     expect(JSON.stringify(map)).toEqual(snapshot);
+  });
+});
+
+describe("anchor limit (root ↔ parent token)", () => {
+  const build = () =>
+    buildChain({}, ["R", "A", "B"], pos({ R: [0, 0], A: [10, 0], B: [20, 0] }), { R: 0, A: 0, B: 0 })!;
+
+  it("is meaningful only when attached to an EXTERNAL token", () => {
+    let [map, id] = build();
+    expect(isExternallyAnchored(map[id])).toBe(false); // unattached
+    map = setParentNode(map, id, "BODY"); // a bare body token
+    expect(isExternallyAnchored(map[id])).toBe(true);
+  });
+
+  it("sets, reads, and gates the anchor limit on being externally anchored", () => {
+    let [map, id] = build();
+    map = setAnchorLimit(map, id, { min: -0.4, max: 0.4 });
+    expect(map[id].anchorLimit).toEqual({ min: -0.4, max: 0.4 });
+    expect(hasAnchorLimit(map[id])).toBe(false); // set but not attached ⇒ inert
+    expect(chainHasLimits(map[id])).toBe(true); // still counts for "Clear all"
+    map = setParentNode(map, id, "BODY");
+    expect(hasAnchorLimit(map[id])).toBe(true); // now it bites
+  });
+
+  it("clearLimits drops the anchor limit along with the rest", () => {
+    let [map, id] = build();
+    map = setParentNode(map, id, "BODY");
+    map = setAnchorLimit(map, id, { min: -1, max: 1 });
+    map = clearLimits(map, id);
+    expect(map[id].anchorLimit).toBeUndefined();
+    expect(chainHasLimits(map[id])).toBe(false);
   });
 });
 

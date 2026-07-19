@@ -19,6 +19,8 @@ import {
   findChainForToken,
   getChains,
   hasDefaultLimit,
+  hasAnchorLimit,
+  isExternallyAnchored,
   isLimitable,
   onChainsChange,
   orderedNodes,
@@ -31,6 +33,7 @@ import {
   disableSegmentRig,
   setDefaultLimit,
   setNodeLimit,
+  setAnchorLimit,
   setNodeStiffness,
   setParentNode,
   unionRange,
@@ -38,7 +41,7 @@ import {
 } from "../obr/chainStore";
 import { clearHighlights, highlightTokens } from "../obr/highlight";
 import { BONES_KEY, EDIT_PIVOTS_KEY, refreshBones } from "../obr/bones";
-import { chainBends } from "../ik/pose";
+import { anchorBend, chainBends } from "../ik/pose";
 import { getItemNames, getPositions, getRotations, getSelectedTokenIds, getSelection } from "../obr/scene";
 import { POSE_SHORTCUT } from "../obr/constants";
 import { useObrTheme } from "./theme";
@@ -611,13 +614,48 @@ function ChainCard({
     }
   };
 
+  // The ANCHOR limit (root ↔ parent token) shares the capture state machine via a
+  // sentinel target that can't collide with a token id or the "" chain default.
+  const ANCHOR = " anchor";
+  // Capture the anchor bend from the current pose: the root's swing relative to
+  // the parent token's live rotation, unioned across two extremes like the rest.
+  const captureAnchor = async () => {
+    if (capturing || !chain.parentNodeId) return;
+    setCapturing(true);
+    try {
+      const [positions, rotations, parentRot] = await Promise.all([
+        getPositions(nodes),
+        isSeg ? getRotations(nodes) : Promise.resolve<Record<string, number>>({}),
+        getRotations([chain.parentNodeId]),
+      ]);
+      const bend = anchorBend(chain, positions, rotations, parentRot[chain.parentNodeId] ?? 0);
+      if (bend === null) return;
+      const range = { min: bend, max: bend };
+      const locked = chain.anchorLimit;
+      if (locked) {
+        await onPatch(setAnchorLimit(chains, chain.id, unionRange(locked, range)));
+      } else if (pending?.target === ANCHOR) {
+        setPending(null);
+        await onPatch(setAnchorLimit(chains, chain.id, unionRange(pending.range, range)));
+      } else {
+        setPending({ target: ANCHOR, range });
+      }
+    } finally {
+      setCapturing(false);
+    }
+  };
+
   const clearLimit = (target: string) => {
     setPending((p) => (p?.target === target ? null : p));
-    onPatch(target === ""
-      ? setDefaultLimit(chains, chain.id, null)
-      : setNodeLimit(chains, chain.id, target, null));
+    onPatch(
+      target === ""
+        ? setDefaultLimit(chains, chain.id, null)
+        : target === ANCHOR
+          ? setAnchorLimit(chains, chain.id, null)
+          : setNodeLimit(chains, chain.id, target, null),
+    );
   };
-  // Full reset: drop the chain default AND every per-token override in one go —
+  // Full reset: drop the chain default, the anchor, AND every per-token override —
   // also the clean way to shed limits captured before the segment-space rework.
   const clearAllLimits = () => {
     setPending(null);
@@ -625,7 +663,7 @@ function ChainCard({
   };
 
   const limitOn = (target: string): boolean =>
-    (target === "" ? chain.settings.defaultLimit : chain.nodes[target]?.limit) != null;
+    (target === "" ? chain.settings.defaultLimit : target === ANCHOR ? chain.anchorLimit : chain.nodes[target]?.limit) != null;
   const limitStatus = (target: string): string =>
     limitOn(target) ? "On" : pending?.target === target ? "1 pose set" : "Off";
   const captureLabel = (target: string): string =>
@@ -779,6 +817,7 @@ function ChainCard({
       )}
 
       {parentName ? (
+        <>
         <div className="row">
           <span className="chain-sub" title="This chain follows that token and rides along when it moves">
             ↳ Follows {parentName}
@@ -788,6 +827,35 @@ function ChainCard({
             <CloseIcon size={13} /> Detach
           </button>
         </div>
+        {advanced && isExternallyAnchored(chain) && (
+          <div className="limits">
+            <div className="row">
+              <label title={`Anchor limit: how far this chain's root may swing relative to ${parentName}. Pose the root to its extremes and capture — the cone rotates with the parent.`}>
+                Anchor limit (shoulder)
+              </label>
+              <span className="chain-sub">{limitStatus(ANCHOR)}</span>
+            </div>
+            <div className="limits-actions">
+              <button className="mini-btn" disabled={capturing} onClick={captureAnchor}>
+                {captureLabel(ANCHOR)}
+              </button>
+              {pending?.target === ANCHOR && (
+                <button className="mini-btn" onClick={() => setPending(null)}>Cancel</button>
+              )}
+              {hasAnchorLimit(chain) && (
+                <button className="mini-btn danger" onClick={() => clearLimit(ANCHOR)}>Clear</button>
+              )}
+            </div>
+            <p className="limits-hint">
+              {limitOn(ANCHOR)
+                ? `Pose the root past its range and capture to widen how far it swings off ${parentName}.`
+                : pending?.target === ANCHOR
+                  ? "Now pose the root to the other extreme and capture to lock the swing range."
+                  : `Pose the root to one extreme relative to ${parentName}, then capture — twice, for both.`}
+            </p>
+          </div>
+        )}
+        </>
       ) : (
         <div className="row">
           <span className="chain-sub">Follow another token</span>

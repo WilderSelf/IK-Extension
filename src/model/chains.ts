@@ -541,9 +541,24 @@ export function hasDefaultLimit(chain: Chain): boolean {
   return chain.settings.defaultLimit != null;
 }
 
-/** True if any limit — the chain default or any per-node override — is set. */
+/**
+ * True if this chain is attached to a token OTHER than its own root — a body or
+ * another chain's node. Only then is the ANCHOR limit meaningful (the parent
+ * supplies the reference the root swings against); a shared-pivot anchor-build
+ * (`parentNodeId === rootId`) limits that joint via the normal per-joint limits.
+ */
+export function isExternallyAnchored(chain: Chain): boolean {
+  return chain.parentNodeId != null && chain.parentNodeId !== chain.rootId;
+}
+
+/** True if this chain has a captured anchor limit AND it's externally anchored. */
+export function hasAnchorLimit(chain: Chain): boolean {
+  return chain.anchorLimit != null && isExternallyAnchored(chain);
+}
+
+/** True if any limit — chain default, a per-node override, or the anchor — is set. */
 export function chainHasLimits(chain: Chain): boolean {
-  return hasDefaultLimit(chain) || Object.values(chain.nodes).some((n) => n.limit != null);
+  return hasDefaultLimit(chain) || chain.anchorLimit != null || Object.values(chain.nodes).some((n) => n.limit != null);
 }
 
 /**
@@ -581,12 +596,23 @@ export function setNodeLimit(chains: ChainMap, chainId: string, nodeId: string, 
   return next;
 }
 
-/** Free every joint in the chain: drop the default AND every per-node override. */
+/** Set (or, with `null`, clear) the chain's anchor limit (root ↔ parent token). */
+export function setAnchorLimit(chains: ChainMap, chainId: string, limit: BendLimit | null): ChainMap {
+  const next = clone(chains);
+  const chain = next[chainId];
+  if (!chain) return chains;
+  if (limit) chain.anchorLimit = { min: limit.min, max: limit.max };
+  else delete chain.anchorLimit;
+  return next;
+}
+
+/** Free every joint in the chain: drop the default, the anchor, AND every override. */
 export function clearLimits(chains: ChainMap, chainId: string): ChainMap {
   const next = clone(chains);
   const chain = next[chainId];
   if (!chain) return chains;
   delete chain.settings.defaultLimit;
+  delete chain.anchorLimit;
   for (const n of Object.values(chain.nodes)) delete n.limit;
   return next;
 }

@@ -141,3 +141,42 @@ describe("solveChain — bend limits", () => {
     expect(Math.abs(relBendAt(out, 2))).toBeLessThanOrEqual(0.25 + 1e-3);
   });
 });
+
+describe("solveChain — anchor limit (root vs external reference)", () => {
+  const line = () => pts([0, 0], [10, 0], [20, 0], [30, 0]);
+  const rest = [10, 10, 10];
+  // The root's own bone direction (bone 0→1), signed.
+  const rootDir = (out: Vec2[]) => Math.atan2(out[1].y - out[0].y, out[1].x - out[0].x);
+
+  it("clamps the ROOT's swing relative to anchorRef", () => {
+    // Reaching straight up would swing the root ~90° off +x; a ±0.2 rad anchor
+    // cone about anchorRef=0 must hold it near +x instead.
+    const out = solveChain(line(), rest, { x: 0, y: 20 }, {
+      anchorRef: 0,
+      anchorLimit: { min: -0.2, max: 0.2 },
+    });
+    expect(Math.abs(rootDir(out))).toBeLessThanOrEqual(0.2 + 1e-3);
+  });
+
+  it("tracks the reference angle — the cone rotates with the parent", () => {
+    // Same target, but the parent is turned to π/2: the allowed cone rotates with
+    // it, so the root now sits near π/2 rather than near 0.
+    const out = solveChain(line(), rest, { x: 0, y: 20 }, {
+      anchorRef: Math.PI / 2,
+      anchorLimit: { min: -0.2, max: 0.2 },
+    });
+    const rel = Math.atan2(Math.sin(rootDir(out) - Math.PI / 2), Math.cos(rootDir(out) - Math.PI / 2));
+    expect(Math.abs(rel)).toBeLessThanOrEqual(0.2 + 1e-3);
+  });
+
+  it("no-ops without a reference (limit alone does nothing at the root)", () => {
+    const plain = solveChain(line(), rest, { x: 0, y: 20 });
+    const out = solveChain(line(), rest, { x: 0, y: 20 }, { anchorLimit: { min: -0.2, max: 0.2 } });
+    expect(out).toEqual(plain); // anchorRef undefined ⇒ untouched fast path
+  });
+
+  it("preserves rest lengths under an anchor clamp", () => {
+    const out = solveChain(line(), rest, { x: 3, y: 18 }, { anchorRef: 0, anchorLimit: { min: -0.3, max: 0.3 } });
+    restOf(out).forEach((l, i) => expect(l).toBeCloseTo(rest[i], 4));
+  });
+});

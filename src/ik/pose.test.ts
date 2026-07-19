@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import type { Chain, ChainMap, Vec2 } from "../types";
 import { defaultSettings } from "../types";
-import { buildChain, enableSegmentRig, orderedNodes, setDefaultLimit, setParentNode } from "../model/chains";
-import { boneAngles, chainBends, poseRig, relativeBends, rigidTranslate, solvePose } from "./pose";
+import { buildChain, enableSegmentRig, orderedNodes, setAnchorLimit, setDefaultLimit, setParentNode } from "../model/chains";
+import { anchorBend, boneAngles, chainBends, poseRig, relativeBends, rigidTranslate, solvePose } from "./pose";
 import { dist, wrapAngle } from "./vec";
 
 // Signed bend at the joint x-y-z: angle(y→z) minus angle(x→y), wrapped.
@@ -162,6 +162,44 @@ describe("poseRig bend limits", () => {
     const { rotations } = poseRig(chains, sId, base, { mode: "solve", grabbedId: "S2", target }, undefined, baseRot);
     const worst = Math.max(artic(rotations, order, 1), artic(rotations, order, 2));
     expect(worst).toBeGreaterThan(0.2);
+  });
+});
+
+describe("anchor limit (root swing vs parent token)", () => {
+  // Arm S0-S1-S2 attached to a BARE body token "BODY".
+  function armOnBody() {
+    let chains: ChainMap = buildChain({}, ["S0", "S1", "S2"],
+      pos({ S0: [0, 0], S1: [10, 0], S2: [20, 0] }), { S0: 0, S1: 0, S2: 0 })![0];
+    const sId = Object.values(chains).find((c) => c.rootId === "S0")!.id;
+    chains = setParentNode(chains, sId, "BODY");
+    const base = pos({ S0: [0, 0], S1: [10, 0], S2: [20, 0] });
+    return { chains, sId, base };
+  }
+  const rootDirOf = (p: Record<string, Vec2>) => Math.atan2(p.S1.y - p.S0.y, p.S1.x - p.S0.x);
+
+  it("anchorBend measures the root's direction relative to the parent rotation", () => {
+    const { chains, sId } = armOnBody();
+    const straight = pos({ S0: [0, 0], S1: [10, 0], S2: [20, 0] });
+    expect(anchorBend(chains[sId], straight, {}, 0)).toBeCloseTo(0, 6); // both point the same way
+    // Parent turned +90°: the root's +x direction is −π/2 relative to it.
+    expect(anchorBend(chains[sId], straight, {}, 90)).toBeCloseTo(-Math.PI / 2, 6);
+  });
+
+  it("clamps the root swing to the anchor limit when the parent rotation is known", () => {
+    let { chains, sId, base } = armOnBody();
+    chains = setAnchorLimit(chains, sId, { min: -0.2, max: 0.2 });
+    const { positions } = poseRig(chains, sId, base,
+      { mode: "solve", grabbedId: "S2", target: { x: 0, y: 20 } }, undefined, { S0: 0, S1: 0, S2: 0, BODY: 0 });
+    expect(Math.abs(rootDirOf(positions))).toBeLessThanOrEqual(0.2 + 1e-3);
+  });
+
+  it("skips the anchor limit when the parent's rotation isn't supplied (root swings free)", () => {
+    let { chains, sId, base } = armOnBody();
+    chains = setAnchorLimit(chains, sId, { min: -0.2, max: 0.2 });
+    // baseRot lacks BODY ⇒ no reference ⇒ the cap can't apply.
+    const { positions } = poseRig(chains, sId, base,
+      { mode: "solve", grabbedId: "S2", target: { x: 0, y: 20 } }, undefined, { S0: 0, S1: 0, S2: 0 });
+    expect(Math.abs(rootDirOf(positions))).toBeGreaterThan(0.2);
   });
 });
 

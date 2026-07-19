@@ -11,8 +11,11 @@ import {
   chainHasLimits,
   chainLimits,
   clearLimits,
+  disableSegmentRig,
   effectiveStiffness,
+  enableSegmentRig,
   expandLimits,
+  isSegmentRig,
   orderedNodes,
   pruneMissing,
   removeToken,
@@ -65,6 +68,44 @@ describe("buildChain", () => {
   it("rejects fewer than two tokens or duplicate ids", () => {
     expect(buildChain({}, ["R"], POS, ROT)).toBeNull();
     expect(buildChain({}, ["R", "R"], POS, ROT)).toBeNull();
+  });
+});
+
+describe("segment rig (limb mode)", () => {
+  const armChain = (): [ChainMap, string] => {
+    const map = buildChain({}, ["R", "A", "B"], POS, ROT)![0];
+    return [map, Object.keys(map)[0]];
+  };
+
+  it("captures per-node segment data and sets the flag", () => {
+    const [map, id] = armChain();
+    const next = enableSegmentRig(map, id, POS, ROT);
+    expect(next[id].settings.segmentRig).toBe(true);
+    expect(isSegmentRig(next[id])).toBe(true);
+    // joints from centres 0,10,20 → -5,5,15,25: each segment len 10, centre at 0.5.
+    expect(next[id].nodes.R.seg).toEqual({ len: 10, frac: 0.5, offsetDeg: 0 });
+    expect(next[id].nodes.B.seg?.len).toBeCloseTo(10, 6);
+  });
+
+  it("records the rotation offset against the SEGMENT direction", () => {
+    const [map, id] = armChain();
+    // Segment points +x (angle 0); a token authored at 90° → offset 90.
+    const next = enableSegmentRig(map, id, POS, { R: 90, A: 90, B: 90 });
+    expect(next[id].nodes.A.seg?.offsetDeg).toBeCloseTo(90, 6);
+  });
+
+  it("disable clears the flag but leaves the default rig's boneOffsetDeg intact", () => {
+    const [map, id] = armChain();
+    const bone = map[id].nodes.A.boneOffsetDeg;
+    const off = disableSegmentRig(enableSegmentRig(map, id, POS, ROT), id);
+    expect(off[id].settings.segmentRig).toBeUndefined();
+    expect(isSegmentRig(off[id])).toBe(false);
+    expect(off[id].nodes.A.boneOffsetDeg).toBe(bone);
+  });
+
+  it("no-ops without at least two positioned tokens", () => {
+    const [map, id] = armChain();
+    expect(enableSegmentRig(map, id, { R: { x: 0, y: 0 } }, ROT)).toBe(map);
   });
 });
 

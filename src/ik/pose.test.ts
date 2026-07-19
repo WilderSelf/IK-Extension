@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { Chain, ChainMap, Vec2 } from "../types";
 import { defaultSettings } from "../types";
-import { buildChain, orderedNodes, setParentNode } from "../model/chains";
+import { buildChain, enableSegmentRig, orderedNodes, setParentNode } from "../model/chains";
 import { boneAngles, poseRig, relativeBends, rigidTranslate, solvePose } from "./pose";
 import { dist } from "./vec";
 
@@ -201,6 +201,22 @@ describe("poseRig (linked chains)", () => {
     const q = poseRig(chains, aId, base, { mode: "translate", delta: { x: 3, y: 4 } });
     expect(q.positions.A2).toEqual({ x: 23, y: 4 });
     expect(q.positions.P1).toEqual({ x: 23, y: 14 });
+  });
+
+  it("segment rig: posing the tip rotates the root token about the shoulder", () => {
+    let chains: ChainMap = buildChain({}, ["S0", "S1", "S2"],
+      pos({ S0: [0, 0], S1: [10, 0], S2: [20, 0] }), { S0: 0, S1: 0, S2: 0 })![0];
+    const sId = Object.values(chains).find((c) => c.rootId === "S0")!.id;
+    chains = enableSegmentRig(chains, sId, pos({ S0: [0, 0], S1: [10, 0], S2: [20, 0] }), { S0: 0, S1: 0, S2: 0 });
+    const base = pos({ S0: [0, 0], S1: [10, 0], S2: [20, 0] });
+    // Reach the tip up and over; the whole arm should swing up at the shoulder.
+    const p = poseRig(chains, sId, base, { mode: "solve", grabbedId: "S2", target: { x: 0, y: 20 } });
+    // The ROOT token now carries a rotation (in the default rig it wouldn't) and
+    // has actually turned off the straight-arm 0 toward the raised pose.
+    expect(p.rotations.S0).not.toBeUndefined();
+    expect(Math.abs(p.rotations.S0)).toBeGreaterThan(0.05);
+    // Its centre moved as the upper segment pivoted about the (fixed) shoulder.
+    expect(dist(p.positions.S0, base.S0)).toBeGreaterThan(0.5);
   });
 
   it("carries a grandchild two levels down", () => {

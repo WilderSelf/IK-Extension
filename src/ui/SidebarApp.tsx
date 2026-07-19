@@ -25,6 +25,8 @@ import {
   renameNode,
   saveChains,
   setChainColor,
+  enableSegmentRig,
+  disableSegmentRig,
   setChainLimits,
   setNodeStiffness,
   setParentNode,
@@ -254,6 +256,27 @@ export function SidebarApp() {
     await saveChains(next);
   }
 
+  // Toggle limb mode. Turning it ON captures each token's rigid-segment data from
+  // the CURRENT pose (so pose the chain to a neutral rest first), which needs the
+  // live positions + rotations; turning it off just clears the flag.
+  const onToggleSegmentRig = async (chainId: string, on: boolean) => {
+    if (!on) {
+      await patch(disableSegmentRig(chains, chainId));
+      return;
+    }
+    const chain = chains[chainId];
+    if (!chain) return;
+    const ids = orderedNodes(chain);
+    const [positions, rotations] = await Promise.all([getPositions(ids), getRotations(ids)]);
+    const next = enableSegmentRig(chains, chainId, positions, rotations);
+    if (next === chains) {
+      setStatus("Couldn't enable limb mode — need at least two tokens with known positions.");
+      return;
+    }
+    await patch(next);
+    setStatus("Limb mode on: segments now pivot at their joints. Re-toggle after re-posing to recapture the rest pose.");
+  };
+
   async function onNewChain() {
     const ids = await getSelectedTokenIds();
     if (ids.length < 2) {
@@ -377,6 +400,7 @@ export function SidebarApp() {
             onPatch={patch}
             onAttach={onAttach}
             onDetach={onDetach}
+            onToggleSegmentRig={onToggleSegmentRig}
             onSelectNode={(id) => OBR.player.select([id], true).catch(() => {})}
             onSelectChain={onSelectChain}
             onSetColor={onSetChainColor}
@@ -397,6 +421,7 @@ function ChainCard({
   onPatch,
   onAttach,
   onDetach,
+  onToggleSegmentRig,
   onSelectNode,
   onSelectChain,
   onSetColor,
@@ -410,6 +435,7 @@ function ChainCard({
   onPatch: (next: ChainMap) => Promise<void>;
   onAttach: (chainId: string, parentTokenId: string) => void;
   onDetach: (chainId: string) => void;
+  onToggleSegmentRig: (chainId: string, on: boolean) => void;
   onSelectNode: (id: string) => void;
   onSelectChain: (chainId: string, ids: string[], color: string) => void;
   onSetColor: (chainId: string, color: string) => void;
@@ -587,6 +613,18 @@ function ChainCard({
           checked={chain.settings.autoRotate}
           onChange={(e) => setAutoRotate(e.target.checked)} />
       </div>
+
+      {advanced && nodes.length >= 2 && (
+        <div className="row">
+          <label htmlFor={`seg-${chain.id}`}
+            title="Limb mode: treat tokens as rigid segments so each pivots at its joint (shoulder/elbow/wrist), not its centre. Pose the chain to a neutral rest first — turning this on captures that pose. Leave off for ropes/tails.">
+            Rigid segments (limb)
+          </label>
+          <input id={`seg-${chain.id}`} type="checkbox"
+            checked={!!chain.settings.segmentRig}
+            onChange={(e) => onToggleSegmentRig(chain.id, e.target.checked)} />
+        </div>
+      )}
 
       {advanced && (
         <div className="stiff-block">

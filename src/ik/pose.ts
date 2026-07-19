@@ -1,6 +1,7 @@
 import { type Chain, type ChainMap, type Vec2, STIFFNESS_RETENTION } from "../types";
-import { descendantChainIds, effectiveStiffness, orderedNodes, parentChainId } from "../model/chains";
+import { descendantChainIds, effectiveStiffness, isSegmentRig, orderedNodes, parentChainId } from "../model/chains";
 import { solveChain, type SolveOptions } from "./fabrik";
+import { seatTokens, segmentAngles, solveSegmentJoints } from "./segment";
 import { add, angle, dist, rotateAround, sub, wrapAngle } from "./vec";
 
 /**
@@ -152,11 +153,25 @@ export function poseRig(
   const out: Record<string, Vec2> = { ...base };
   const posed = chains[posedChainId];
   if (posed) {
-    const solved =
-      grab.mode === "translate"
-        ? rigidTranslate(posed, base, grab.delta)
-        : solvePose(posed, base, grab.grabbedId, grab.target, opts);
-    Object.assign(out, solved.positions);
+    if (grab.mode === "solve" && isSegmentRig(posed)) {
+      // Limb mode: solve the JOINTS (root joint pinned) and re-seat each token on
+      // its segment, so segments pivot at their joints instead of their centres.
+      const order = orderedNodes(posed);
+      const centres = order.map((id) => base[id]);
+      if (centres.every(Boolean)) {
+        const seg = order.map((id) => posed.nodes[id].seg!);
+        const joints = solveSegmentJoints(centres as Vec2[], seg, order.indexOf(grab.grabbedId), grab.target, opts);
+        seatTokens(joints, seg).forEach((c, i) => {
+          out[order[i]] = c;
+        });
+      }
+    } else {
+      const solved =
+        grab.mode === "translate"
+          ? rigidTranslate(posed, base, grab.delta)
+          : solvePose(posed, base, grab.grabbedId, grab.target, opts);
+      Object.assign(out, solved.positions);
+    }
   }
 
   const descendants = descendantChainIds(chains, posedChainId);
@@ -204,8 +219,15 @@ export function poseRig(
   for (const id of [posedChainId, ...descendants]) {
     const chain = chains[id];
     if (!chain) continue;
-    const angles = boneAngles(chain, out);
-    for (const [tid, a] of Object.entries(angles)) {
+    // A segment rig orients each token along its SEGMENT (joint→joint); the
+    // default rig orients along its incoming bone (parent centre → own centre).
+    const order = orderedNodes(chain);
+    const segCentres = isSegmentRig(chain) ? order.map((t) => out[t]) : null;
+    const segAngles = segCentres && segCentres.every(Boolean) ? segmentAngles(segCentres as Vec2[]) : null;
+    const angleEntries: [string, number][] = segAngles
+      ? order.map((tid, i) => [tid, segAngles[i]])
+      : Object.entries(boneAngles(chain, out));
+    for (const [tid, a] of angleEntries) {
       // A chain's own root normally DOES rotate — to face its child — so a limb's
       // upper segment swings about its pinned joint (shoulder) as the tip is
       // posed. Skip it ONLY when the token is a SHARED PIVOT: a non-root segment

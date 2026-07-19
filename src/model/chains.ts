@@ -16,6 +16,7 @@ import {
   STIFFNESS_ORDER,
   defaultSettings,
 } from "../types";
+import { captureSegments, segmentAngles } from "../ik/segment";
 
 const clone = (chains: ChainMap): ChainMap => JSON.parse(JSON.stringify(chains)) as ChainMap;
 
@@ -363,6 +364,57 @@ export function setChainColor(chains: ChainMap, chainId: string, color: string):
   const next = clone(chains);
   next[chainId].color = color;
   return next;
+}
+
+// ---- Segment rig (limb mode) ------------------------------------------------
+
+/**
+ * Turn limb mode ON for a chain, capturing each node's rigid-segment data from
+ * the CURRENT pose (`positions` centres + `rotations` in degrees): the segment
+ * length, where the token's centre sits along it, and its rotation relative to
+ * the segment direction. Needs ≥ 2 nodes with known positions; a no-op otherwise
+ * (returns the same map). Turning it on treats the current pose as the rest pose.
+ */
+export function enableSegmentRig(
+  chains: ChainMap,
+  chainId: string,
+  positions: Record<string, Vec2>,
+  rotations: Record<string, number>,
+): ChainMap {
+  const chain = chains[chainId];
+  if (!chain) return chains;
+  const order = orderedNodes(chain);
+  const centres = order.map((id) => positions[id]);
+  if (order.length < 2 || centres.some((c) => !c)) return chains;
+  const seg = captureSegments(centres as Vec2[]);
+  const segDeg = segmentAngles(centres as Vec2[]).map((a) => (a * 180) / Math.PI);
+  const next = clone(chains);
+  order.forEach((id, i) => {
+    next[chainId].nodes[id].seg = {
+      len: seg[i].len,
+      frac: seg[i].frac,
+      offsetDeg: (rotations[id] ?? 0) - segDeg[i],
+    };
+  });
+  next[chainId].settings.segmentRig = true;
+  return next;
+}
+
+/**
+ * Turn limb mode OFF. The captured `seg` data is left in place (harmless when the
+ * flag is off) so re-enabling without a fresh pose reuses it; the centre-based
+ * `boneOffsetDeg` was never touched, so the default rig resumes exactly.
+ */
+export function disableSegmentRig(chains: ChainMap, chainId: string): ChainMap {
+  if (!chains[chainId]) return chains;
+  const next = clone(chains);
+  delete next[chainId].settings.segmentRig;
+  return next;
+}
+
+/** Whether a chain is a segment rig with capture data ready for every node. */
+export function isSegmentRig(chain: Chain): boolean {
+  return !!chain.settings.segmentRig && orderedNodes(chain).every((id) => chain.nodes[id].seg);
 }
 
 // ---- Display names (cosmetic; never touch the Owlbear item) -----------------

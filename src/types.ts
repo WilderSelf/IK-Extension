@@ -97,6 +97,14 @@ export interface ChainNode {
    * item.
    */
   name?: string;
+  /**
+   * Rigid-segment data for a segment rig (`ChainSettings.segmentRig`). Captured
+   * from the rest pose when limb mode is turned on: `len` is the token's segment
+   * length (joint→joint), `frac` where its centre sits along that segment, and
+   * `offsetDeg` its authored rotation relative to the segment direction (the
+   * segment-model analogue of `boneOffsetDeg`). Unset when not a segment rig.
+   */
+  seg?: { len: number; frac: number; offsetDeg: number };
 }
 
 export interface ChainSettings {
@@ -114,6 +122,14 @@ export interface ChainSettings {
    * fall-off. A node's own `stiffness` override still wins over the ramp.
    */
   ease?: boolean;
+  /**
+   * Limb mode: treat the tokens as rigid SEGMENTS spanning joints, so each pivots
+   * at its joint (the shoulder/elbow/wrist) instead of its own centre. Off by
+   * default — the centre-based rig is correct for ropes/tails/tentacles (a blob
+   * at each point), so this is opt-in per chain. Turning it on captures each
+   * node's `seg` data from the current pose.
+   */
+  segmentRig?: boolean;
 }
 
 /**

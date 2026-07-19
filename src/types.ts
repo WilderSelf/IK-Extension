@@ -12,6 +12,31 @@ export interface Vec2 {
   y: number;
 }
 
+/**
+ * How much a bone resists bending as the chain is posed. A *relative* setting:
+ * a stiffer joint keeps its angle so the reach demand is absorbed by the looser
+ * joints around it (stiff base, floppy tip). `normal` reproduces plain FABRIK
+ * exactly; `stiff` damps the joint's turn; `loose` sheds bend a touch more
+ * eagerly than its neighbours. It is resistance, not a lock — drag far enough
+ * and a stiff joint still gives. See `STIFFNESS_RETENTION` for the mapping.
+ */
+export type Stiffness = "loose" | "normal" | "stiff";
+
+/**
+ * Per-bone relaxation *retention* fed to the solver, keyed by `Stiffness`. In
+ * the forward pass a joint's turn toward its ideal angle is scaled by
+ * `(1 - retention)`, so 0 = move fully (plain FABRIK), positive = damped
+ * (stiff), negative = mild over-relaxation (loose sheds bend faster). All values
+ * keep the relaxation factor `(1 - retention)` inside the stable (0, 2) range.
+ * `normal` is exactly 0 so a chain of all-normal joints is byte-identical to the
+ * unweighted solver.
+ */
+export const STIFFNESS_RETENTION: Record<Stiffness, number> = {
+  loose: -0.4,
+  normal: 0,
+  stiff: 0.7,
+};
+
 export interface ChainNode {
   /** Parent token id, or null for the root. */
   parentId: string | null;
@@ -26,11 +51,23 @@ export interface ChainNode {
    * the root (the root is never re-rotated).
    */
   boneOffsetDeg?: number;
+  /**
+   * How much this node's incoming bone resists bending. Overrides the chain's
+   * `defaultStiffness`; undefined means "inherit the chain default". Meaningless
+   * on the root (no incoming bone), so left unset there.
+   */
+  stiffness?: Stiffness;
 }
 
 export interface ChainSettings {
   /** Rotate each token to face along its bone as the chain flexes. */
   autoRotate: boolean;
+  /**
+   * Fallback bend-resistance for every node that lacks its own `stiffness`.
+   * Optional so chains persisted before this setting existed resolve to
+   * `normal` (plain FABRIK) rather than needing a data migration.
+   */
+  defaultStiffness?: Stiffness;
 }
 
 export interface Chain {
@@ -68,5 +105,5 @@ export const METADATA_KEY = "rodeo.wilder.ik/chains";
 export const DEFAULT_ROTATION_OFFSET_DEG = 90;
 
 export function defaultSettings(): ChainSettings {
-  return { autoRotate: true };
+  return { autoRotate: true, defaultStiffness: "normal" };
 }

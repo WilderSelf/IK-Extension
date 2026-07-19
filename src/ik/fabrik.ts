@@ -1,11 +1,25 @@
 import type { Vec2 } from "../types";
-import { add, dir, dist, scale } from "./vec";
+import { add, angle, dir, dist, scale } from "./vec";
 
 export interface SolveOptions {
   /** Max solver iterations per solve. */
   iterations?: number;
   /** Convergence tolerance in scene units. */
   tolerance?: number;
+  /**
+   * Optional per-bone stiffness *retention* factors, aligned with `restLengths`
+   * (so `stiffness[b]` governs the bone from `points[b]` to `points[b+1]`). In
+   * the forward pass each bone's turn toward its ideal angle is scaled by
+   * `(1 - retention)` about its pre-solve angle: 0 leaves the bone free, a
+   * positive value resists the turn (stiff), a negative one over-relaxes it
+   * (loose). Absent or all-zero ⇒ the plain unweighted solver runs unchanged.
+   */
+  stiffness?: number[];
+}
+
+/** Wrap an angle into (-π, π]. */
+function wrapAngle(a: number): number {
+  return Math.atan2(Math.sin(a), Math.cos(a));
 }
 
 /**
@@ -33,6 +47,8 @@ export function solveChain(
 
   const iterations = opts.iterations ?? 12;
   const tolerance = opts.tolerance ?? 0.5;
+  const stiffness = opts.stiffness;
+  const hasStiffness = !!stiffness?.some((s) => s !== 0);
 
   const total = restLengths.reduce((s, l) => s + l, 0);
   const p = points.map((pt) => ({ ...pt }));
@@ -42,8 +58,10 @@ export function solveChain(
   // every node onto the root via the straighten path below.
   if (total <= 0) return p;
 
-  // Unreachable target: point the whole chain straight at it.
-  if (dist(root, target) >= total) {
+  // Unreachable target: point the whole chain straight at it. This shortcut
+  // ignores stiffness, so skip it when any bone is weighted and let the
+  // iterative solver settle into a stiffness-respecting reach instead.
+  if (!hasStiffness && dist(root, target) >= total) {
     const d = dir(root, target);
     p[0] = root;
     for (let i = 1; i < n; i++) {
@@ -51,6 +69,11 @@ export function solveChain(
     }
     return p;
   }
+
+  // Pre-solve bone angles: the reference each weighted bone relaxes back toward.
+  const refAngles = hasStiffness
+    ? Array.from({ length: n - 1 }, (_, b) => angle(points[b], points[b + 1]))
+    : undefined;
 
   for (let iter = 0; iter < iterations; iter++) {
     // Backward reaching: pull the end effector onto the target.
@@ -60,14 +83,28 @@ export function solveChain(
       p[i] = add(p[i + 1], scale(d, restLengths[i]));
     }
 
-    // Forward reaching: re-pin the root and propagate outward.
+    // Forward reaching: re-pin the root and propagate outward. With stiffness,
+    // scale each bone's turn toward its ideal angle by (1 - retention) about its
+    // pre-solve angle, so stiff bones barely swing and the bend flows elsewhere.
     p[0] = { ...root };
-    for (let i = 1; i < n; i++) {
-      const d = dir(p[i - 1], p[i]);
-      p[i] = add(p[i - 1], scale(d, restLengths[i - 1]));
+    if (refAngles) {
+      for (let i = 1; i < n; i++) {
+        const b = i - 1;
+        const ret = stiffness![b] ?? 0;
+        let a = angle(p[i - 1], p[i]);
+        if (ret !== 0) a = refAngles[b] + wrapAngle(a - refAngles[b]) * (1 - ret);
+        p[i] = add(p[i - 1], scale({ x: Math.cos(a), y: Math.sin(a) }, restLengths[b]));
+      }
+    } else {
+      for (let i = 1; i < n; i++) {
+        const d = dir(p[i - 1], p[i]);
+        p[i] = add(p[i - 1], scale(d, restLengths[i - 1]));
+      }
     }
 
-    if (dist(p[n - 1], target) < tolerance) break;
+    // A weighted solve keeps iterating so the stiffness settles; only the plain
+    // path may bail early once the tip is within tolerance.
+    if (!hasStiffness && dist(p[n - 1], target) < tolerance) break;
   }
 
   return p;

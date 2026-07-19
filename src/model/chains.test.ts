@@ -6,9 +6,11 @@ import {
   deleteChain,
   descendantChainIds,
   findChainForToken,
+  effectiveStiffness,
   orderedNodes,
   pruneMissing,
   removeToken,
+  setNodeStiffness,
   setParentNode,
   updateSettings,
 } from "./chains";
@@ -87,6 +89,61 @@ describe("updateSettings", () => {
     const snapshot = JSON.stringify(map);
     const next = updateSettings(map, id, { autoRotate: false });
     expect(next[id].settings.autoRotate).toBe(false);
+    expect(JSON.stringify(map)).toEqual(snapshot);
+  });
+});
+
+describe("stiffness (setNodeStiffness / effectiveStiffness)", () => {
+  // Chain R-A-B; every node starts on the chain default ("normal").
+  const build = () =>
+    buildChain({}, ["R", "A", "B"], pos({ R: [0, 0], A: [10, 0], B: [20, 0] }), { R: 0, A: 0, B: 0 })!;
+
+  it("defaults every node to the chain default when unset", () => {
+    const [map, id] = build();
+    expect(effectiveStiffness(map[id], "A")).toBe("normal");
+    expect(effectiveStiffness(map[id], "B")).toBe("normal");
+  });
+
+  it("a per-node override wins over the chain default", () => {
+    const [map, id] = build();
+    const next = setNodeStiffness(map, "A", "stiff");
+    expect(effectiveStiffness(next[id], "A")).toBe("stiff");
+    expect(effectiveStiffness(next[id], "B")).toBe("normal");
+  });
+
+  it("nodes without an override follow a changed chain default", () => {
+    let [map, id] = build();
+    map = setNodeStiffness(map, "A", "stiff");
+    map = updateSettings(map, id, { defaultStiffness: "loose" });
+    expect(effectiveStiffness(map[id], "A")).toBe("stiff"); // override held
+    expect(effectiveStiffness(map[id], "B")).toBe("loose"); // inherited default
+  });
+
+  it("clearing an override falls back to the chain default", () => {
+    let [map, id] = build();
+    map = updateSettings(map, id, { defaultStiffness: "loose" });
+    map = setNodeStiffness(map, "A", "stiff");
+    map = setNodeStiffness(map, "A", null);
+    expect(map[id].nodes["A"].stiffness).toBeUndefined();
+    expect(effectiveStiffness(map[id], "A")).toBe("loose");
+  });
+
+  it("falls back to normal for a chain persisted without a default", () => {
+    const [map, id] = build();
+    delete map[id].settings.defaultStiffness; // simulate legacy metadata
+    expect(effectiveStiffness(map[id], "A")).toBe("normal");
+  });
+
+  it("ignores the root and unknown tokens, leaving the map unchanged", () => {
+    const [map] = build();
+    expect(setNodeStiffness(map, "R", "stiff")).toBe(map);
+    expect(setNodeStiffness(map, "ghost", "stiff")).toBe(map);
+  });
+
+  it("does not mutate the input map", () => {
+    const [map] = build();
+    const snapshot = JSON.stringify(map);
+    setNodeStiffness(map, "A", "stiff");
     expect(JSON.stringify(map)).toEqual(snapshot);
   });
 });

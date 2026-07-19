@@ -2,8 +2,15 @@ import { describe, it, expect } from "vitest";
 import type { Chain, ChainMap, Vec2 } from "../types";
 import { defaultSettings } from "../types";
 import { buildChain, orderedNodes, setParentNode } from "../model/chains";
-import { boneAngles, poseRig, rigidTranslate, solvePose } from "./pose";
+import { boneAngles, poseRig, relativeBends, rigidTranslate, solvePose } from "./pose";
 import { dist } from "./vec";
+
+// Signed bend at the joint x-y-z: angle(y→z) minus angle(x→y), wrapped.
+const relBend = (p: Record<string, Vec2>, x: string, y: string, z: string) => {
+  const inA = Math.atan2(p[y].y - p[x].y, p[y].x - p[x].x);
+  const outA = Math.atan2(p[z].y - p[y].y, p[z].x - p[y].x);
+  return Math.atan2(Math.sin(outA - inA), Math.cos(outA - inA));
+};
 
 const pos = (o: Record<string, [number, number]>): Record<string, Vec2> =>
   Object.fromEntries(Object.entries(o).map(([k, [x, y]]) => [k, { x, y }]));
@@ -79,6 +86,31 @@ describe("solvePose", () => {
     const outLoose = solvePose(loose.chain, loose.positions, "C", target).positions;
     // A resists moving off its rest position more when stiff.
     expect(dist(outStiff.A, { x: 10, y: 0 })).toBeLessThan(dist(outLoose.A, { x: 10, y: 0 }));
+  });
+
+  it("respects a joint's captured bend limit while posing", () => {
+    const { chain, positions } = straightChain();
+    chain.nodes["B"].limit = { min: -0.15, max: 0.15 };
+    const out = solvePose(chain, positions, "C", { x: 0, y: 25 }).positions;
+    expect(Math.abs(relBend(out, "R", "A", "B"))).toBeLessThanOrEqual(0.15 + 1e-3);
+  });
+});
+
+describe("relativeBends", () => {
+  it("covers interior joints only and reads ~0 on a straight chain", () => {
+    const { chain, positions } = straightChain();
+    const bends = relativeBends(chain, positions);
+    // A (the first movable node) has no reference bone above it, so it's excluded.
+    expect(Object.keys(bends).sort()).toEqual(["B", "C"]);
+    expect(bends["B"]).toBeCloseTo(0, 6);
+    expect(bends["C"]).toBeCloseTo(0, 6);
+  });
+
+  it("measures a real bend when the chain is posed into an L", () => {
+    const { chain } = straightChain();
+    // Bend 90° at B: R-A along +x, then A-B-C turning up.
+    const posed = { R: { x: 0, y: 0 }, A: { x: 10, y: 0 }, B: { x: 20, y: 0 }, C: { x: 20, y: 10 } };
+    expect(relativeBends(chain, posed)["C"]).toBeCloseTo(Math.PI / 2, 5);
   });
 });
 

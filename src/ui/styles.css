@@ -358,6 +358,21 @@ kbd {
   font-size: 11px;
 }
 
+/* Captured bend-limit controls (capture / cancel / clear + guidance line). */
+.limits-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.limits-hint {
+  margin: 2px 0 0;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--ik-text-secondary);
+}
+
 /* Per-token stiffness sub-row under a node's main line. */
 .node-stiffness {
   display: flex;

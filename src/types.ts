@@ -37,6 +37,17 @@ export const STIFFNESS_RETENTION: Record<Stiffness, number> = {
   stiff: 0.7,
 };
 
+/**
+ * A captured bend limit for one joint: the signed relative-bend interval (in
+ * radians, wrapped to (-π, π]) the joint is allowed to occupy, measured the same
+ * way the solver measures a bend — the outgoing bone's angle minus the incoming
+ * bone's. Populated only by "capture from pose", never typed as a number.
+ */
+export interface BendLimit {
+  min: number;
+  max: number;
+}
+
 export interface ChainNode {
   /** Parent token id, or null for the root. */
   parentId: string | null;
@@ -57,6 +68,12 @@ export interface ChainNode {
    * on the root (no incoming bone), so left unset there.
    */
   stiffness?: Stiffness;
+  /**
+   * Hard bend limit for this joint, captured by posing. Applies only where the
+   * joint has a reference bone above it — the root and the first movable node
+   * (no incoming bone to measure against) never carry one. Undefined = free.
+   */
+  limit?: BendLimit;
 }
 
 export interface ChainSettings {

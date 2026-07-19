@@ -99,3 +99,45 @@ describe("solveChain — stiffness", () => {
     restOf(out).forEach((l, i) => expect(l).toBeCloseTo(rest[i], 4));
   });
 });
+
+describe("solveChain — bend limits", () => {
+  const line = () => pts([0, 0], [10, 0], [20, 0], [30, 0]);
+  const rest = [10, 10, 10];
+  // Signed bend at point i: angle(bone i-1→i) minus angle(bone i-2→i-1).
+  const relBendAt = (out: Vec2[], i: number) => {
+    const inA = Math.atan2(out[i - 1].y - out[i - 2].y, out[i - 1].x - out[i - 2].x);
+    const outA = Math.atan2(out[i].y - out[i - 1].y, out[i].x - out[i - 1].x);
+    return Math.atan2(Math.sin(outA - inA), Math.cos(outA - inA));
+  };
+
+  it("all-null limits is identical to the unweighted solve", () => {
+    const target = { x: 5, y: 18 };
+    const plain = solveChain(line(), rest, target);
+    const limited = solveChain(line(), rest, target, { limits: [null, null, null, null] });
+    expect(limited).toEqual(plain);
+  });
+
+  it("clamps a joint's bend to its captured range", () => {
+    // Target off to the side would bend point 2 well past 0.2 rad if left free.
+    const out = solveChain(line(), rest, { x: 0, y: 20 }, {
+      limits: [null, null, { min: -0.2, max: 0.2 }, null],
+    });
+    expect(Math.abs(relBendAt(out, 2))).toBeLessThanOrEqual(0.2 + 1e-3);
+  });
+
+  it("preserves rest lengths under limits", () => {
+    const out = solveChain(line(), rest, { x: 6, y: 15 }, {
+      limits: [null, null, { min: -0.3, max: 0.3 }, { min: -0.3, max: 0.3 }],
+    });
+    restOf(out).forEach((l, i) => expect(l).toBeCloseTo(rest[i], 4));
+  });
+
+  it("composes with stiffness — both applied, lengths hold", () => {
+    const out = solveChain(line(), rest, { x: 4, y: 16 }, {
+      stiffness: [0.5, 0.5, 0.5],
+      limits: [null, null, { min: -0.25, max: 0.25 }, null],
+    });
+    restOf(out).forEach((l, i) => expect(l).toBeCloseTo(rest[i], 4));
+    expect(Math.abs(relBendAt(out, 2))).toBeLessThanOrEqual(0.25 + 1e-3);
+  });
+});

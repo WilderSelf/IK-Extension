@@ -20,6 +20,11 @@ export function angle(from: Vec2, to: Vec2): number {
   return Math.atan2(to.y - from.y, to.x - from.x);
 }
 
+/** Wrap an angle into (-π, π]. */
+export function wrapAngle(a: number): number {
+  return Math.atan2(Math.sin(a), Math.cos(a));
+}
+
 /** Rotate point p around pivot by angle radians. */
 export function rotateAround(p: Vec2, pivot: Vec2, radians: number): Vec2 {
   const c = Math.cos(radians);

@@ -6,10 +6,15 @@ import {
   deleteChain,
   descendantChainIds,
   findChainForToken,
+  chainHasLimits,
+  chainLimits,
+  clearLimits,
   effectiveStiffness,
+  expandLimits,
   orderedNodes,
   pruneMissing,
   removeToken,
+  setChainLimits,
   setNodeStiffness,
   setParentNode,
   updateSettings,
@@ -145,6 +150,59 @@ describe("stiffness (setNodeStiffness / effectiveStiffness)", () => {
     const snapshot = JSON.stringify(map);
     setNodeStiffness(map, "A", "stiff");
     expect(JSON.stringify(map)).toEqual(snapshot);
+  });
+});
+
+describe("bend limits (capture / clear / expand)", () => {
+  const build = () =>
+    buildChain({}, ["R", "A", "B", "C"],
+      pos({ R: [0, 0], A: [10, 0], B: [20, 0], C: [30, 0] }), { R: 0, A: 0, B: 0, C: 0 })!;
+
+  it("a fresh chain has no limits", () => {
+    const [map, id] = build();
+    expect(chainHasLimits(map[id])).toBe(false);
+    expect(chainLimits(map[id])).toEqual({});
+  });
+
+  it("sets and reads per-joint limits", () => {
+    const [map, id] = build();
+    const next = setChainLimits(map, id, { B: { min: -0.2, max: 0.3 } });
+    expect(chainHasLimits(next[id])).toBe(true);
+    expect(chainLimits(next[id])).toEqual({ B: { min: -0.2, max: 0.3 } });
+    expect(next[id].nodes["C"].limit).toBeUndefined();
+  });
+
+  it("replaces limits wholesale, freeing nodes not named", () => {
+    let [map, id] = build();
+    map = setChainLimits(map, id, { B: { min: -1, max: 1 }, C: { min: -1, max: 1 } });
+    map = setChainLimits(map, id, { C: { min: 0, max: 0.5 } });
+    expect(map[id].nodes["B"].limit).toBeUndefined();
+    expect(chainLimits(map[id])).toEqual({ C: { min: 0, max: 0.5 } });
+  });
+
+  it("clears every limit", () => {
+    let [map, id] = build();
+    map = setChainLimits(map, id, { B: { min: -1, max: 1 } });
+    map = clearLimits(map, id);
+    expect(chainHasLimits(map[id])).toBe(false);
+  });
+
+  it("expandLimits unions pose bends into widening ranges", () => {
+    const one = expandLimits({}, { B: 0.1, C: -0.2 });
+    expect(one).toEqual({ B: { min: 0.1, max: 0.1 }, C: { min: -0.2, max: -0.2 } });
+    const two = expandLimits(one, { B: -0.3, C: 0.4 });
+    expect(two).toEqual({ B: { min: -0.3, max: 0.1 }, C: { min: -0.2, max: 0.4 } });
+  });
+
+  it("does not mutate its inputs", () => {
+    const [map, id] = build();
+    const snapshot = JSON.stringify(map);
+    setChainLimits(map, id, { B: { min: 0, max: 1 } });
+    clearLimits(map, id);
+    expect(JSON.stringify(map)).toEqual(snapshot);
+    const existing = { B: { min: 0, max: 1 } };
+    expandLimits(existing, { B: 2 });
+    expect(existing).toEqual({ B: { min: 0, max: 1 } });
   });
 });
 

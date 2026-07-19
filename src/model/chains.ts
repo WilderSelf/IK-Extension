@@ -232,15 +232,23 @@ export function setParentNode(
     return next;
   }
   const owner = findChainForToken(chains, parentTokenId);
-  if (!owner || owner.id === chainId) return chains; // must be another chain's node
-  // Walk parent links up from the target chain; reaching chainId means a cycle.
-  const seen = new Set<string>();
-  let cur: string | undefined = owner.id;
-  while (cur && !seen.has(cur)) {
-    if (cur === chainId) return chains;
-    seen.add(cur);
-    const pid: string | undefined = chains[cur]?.parentNodeId;
-    cur = pid ? findChainForToken(chains, pid)?.id : undefined;
+  // The parent may be a node of ANOTHER chain (carried by poseRig when that chain
+  // is posed) OR a BARE token — a body sprite that isn't a chain — carried
+  // reactively when it moves (see ik/follow.ts). Only the former can form a cycle.
+  // `findChainForToken` prefers the chain where the token is a non-root SEGMENT, so
+  // a shared anchor (this chain's root but another chain's segment) resolves to the
+  // other chain and is allowed — only a token this chain truly owns is rejected.
+  if (owner) {
+    if (owner.id === chainId) return chains; // a segment of this same chain
+    // Walk parent links up from the owner chain; reaching chainId means a cycle.
+    const seen = new Set<string>();
+    let cur: string | undefined = owner.id;
+    while (cur && !seen.has(cur)) {
+      if (cur === chainId) return chains;
+      seen.add(cur);
+      const pid: string | undefined = chains[cur]?.parentNodeId;
+      cur = pid ? findChainForToken(chains, pid)?.id : undefined;
+    }
   }
   next[chainId].parentNodeId = parentTokenId;
   return next;

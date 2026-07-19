@@ -191,8 +191,13 @@ export function SidebarApp() {
     if (highlightedChainId && !chains[highlightedChainId]) dropHighlight();
   }, [chains, highlightedChainId]);
 
-  // Toggle the on-canvas highlight for a chain (and select its tokens so they're
-  // ready to pose). Clicking the already-highlighted chain clears it.
+  // Toggle the on-canvas highlight for a chain. Clicking the already-highlighted
+  // chain clears it. We deliberately DON'T OBR.player.select() the tokens here:
+  // Owlbear paints its own accent-coloured selection outline over a selection,
+  // which sat on top of the chain-colour aura and read as the "highlight" instead
+  // of the swatch colour. Posing doesn't need a selection (the Pose tool resolves
+  // the grabbed token by drag-target/proximity), so the aura is now the only
+  // highlight — and it's in the chain's colour.
   const onSelectChain = (chainId: string, ids: string[], color: string) => {
     if (highlightedChainId === chainId) {
       dropHighlight();
@@ -200,7 +205,6 @@ export function SidebarApp() {
     }
     highlightTokens(ids, color).catch(() => {});
     setHighlightedChainId(chainId);
-    OBR.player.select(ids, true).catch(() => {});
   };
 
   // Recolour a chain; if it's the one currently highlighted, refresh the aura

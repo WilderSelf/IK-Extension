@@ -47,7 +47,13 @@ export function highlightTokens(ids: string[], color: string): Promise<void> {
     await removeAll();
     if (ids.length === 0) return;
     const [positions, d] = await Promise.all([getPositions(ids), gridDpi()]);
-    const size = d * 1.3; // ~one grid cell; the SCALE behaviour grows it with the token
+    // ~1.9 grid cells wide. The aura sits on DRAWING (below the token's CHARACTER
+    // layer), so it must be comfortably WIDER than a 1-cell token — whose corners
+    // reach ~0.71 cells from centre — for the coloured ring to clear the token
+    // and actually read. A 1.3-cell circle (radius 0.65) tucked inside those
+    // corners and stayed hidden. The SCALE attachment behaviour grows it with the
+    // token, so this stays proportional for larger tokens.
+    const size = d * 1.9;
     const items = ids
       .filter((id) => positions[id]) // skip any token whose position we couldn't read
       .map((id) =>
@@ -58,9 +64,9 @@ export function highlightTokens(ids: string[], color: string): Promise<void> {
           .position(positions[id]) // absolute scene coords; attach carries it from here
           .attachedTo(id)
           .fillColor(color)
-          .fillOpacity(0.12)
+          .fillOpacity(0.15)
           .strokeColor(color)
-          .strokeWidth(Math.max(3, d * 0.04))
+          .strokeWidth(Math.max(4, d * 0.05))
           .strokeOpacity(0.95)
           .layer("DRAWING")
           .locked(true)

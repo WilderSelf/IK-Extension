@@ -1,9 +1,11 @@
 import { describe, it, expect } from "vitest";
-import type { ChainMap, Vec2 } from "../types";
+import { type ChainMap, type Vec2, CHAIN_PALETTE } from "../types";
 import {
   buildChain,
   createChain,
   deleteChain,
+  pickChainColor,
+  setChainColor,
   descendantChainIds,
   findChainForToken,
   chainHasLimits,
@@ -152,6 +154,76 @@ describe("stiffness (setNodeStiffness / effectiveStiffness)", () => {
     const snapshot = JSON.stringify(map);
     setNodeStiffness(map, "A", "stiff");
     expect(JSON.stringify(map)).toEqual(snapshot);
+  });
+
+  it("accepts the two new mid stops (soft/firm)", () => {
+    const [map, id] = build();
+    expect(effectiveStiffness(setNodeStiffness(map, "A", "soft")[id], "A")).toBe("soft");
+    expect(effectiveStiffness(setNodeStiffness(map, "A", "firm")[id], "A")).toBe("firm");
+  });
+});
+
+describe("chain highlight colour", () => {
+  const build = (map: ChainMap, ids: string[]) =>
+    buildChain(map, ids, pos(Object.fromEntries(ids.map((id, i) => [id, [i * 10, 0]]))),
+      Object.fromEntries(ids.map((id) => [id, 0])))!;
+
+  it("assigns a palette colour when a chain is built", () => {
+    const [map, id] = build({}, ["R", "A"]);
+    expect(CHAIN_PALETTE).toContain(map[id].color);
+  });
+
+  it("gives distinct chains distinct default colours", () => {
+    let [map, a] = build({}, ["R", "A"]);
+    let [map2, b] = build(map, ["S", "B"]);
+    expect(map2[a].color).not.toBe(map2[b].color);
+  });
+
+  it("pickChainColor returns the first unused palette entry", () => {
+    const [map] = build({}, ["R", "A"]);
+    const used = Object.values(map)[0].color;
+    expect(pickChainColor(map)).not.toBe(used);
+    expect(pickChainColor(map)).toBe(CHAIN_PALETTE.find((c) => c !== used));
+  });
+
+  it("setChainColor sets a colour, ignores unknown ids, and does not mutate", () => {
+    const [map, id] = build({}, ["R", "A"]);
+    expect(setChainColor(map, id, "#123456")[id].color).toBe("#123456");
+    expect(setChainColor(map, "nope", "#123456")).toBe(map);
+    const snapshot = JSON.stringify(map);
+    setChainColor(map, id, "#abcdef");
+    expect(JSON.stringify(map)).toEqual(snapshot);
+  });
+});
+
+describe("stiffness ease ramp", () => {
+  // R-A-B-C-D: four movable joints, so the ramp lands on distinct stops.
+  const build5 = () =>
+    buildChain({}, ["R", "A", "B", "C", "D"],
+      pos({ R: [0, 0], A: [10, 0], B: [20, 0], C: [30, 0], D: [40, 0] }),
+      { R: 0, A: 0, B: 0, C: 0, D: 0 })!;
+
+  it("ramps stiff at the base to loose at the tip", () => {
+    let [map, id] = build5();
+    map = updateSettings(map, id, { ease: true });
+    expect(effectiveStiffness(map[id], "A")).toBe("stiff"); // base
+    expect(effectiveStiffness(map[id], "B")).toBe("firm");
+    expect(effectiveStiffness(map[id], "C")).toBe("soft");
+    expect(effectiveStiffness(map[id], "D")).toBe("loose"); // tip
+  });
+
+  it("lets a per-token override win over the ramp", () => {
+    let [map, id] = build5();
+    map = updateSettings(map, id, { ease: true });
+    map = setNodeStiffness(map, "A", "loose");
+    expect(effectiveStiffness(map[id], "A")).toBe("loose"); // override, not the ramp's "stiff"
+    expect(effectiveStiffness(map[id], "D")).toBe("loose"); // still ramped
+  });
+
+  it("leaves a single movable joint stiff", () => {
+    let [map, id] = buildChain({}, ["R", "A"], pos({ R: [0, 0], A: [10, 0] }), { R: 0, A: 0 })!;
+    map = updateSettings(map, id, { ease: true });
+    expect(effectiveStiffness(map[id], "A")).toBe("stiff");
   });
 });
 

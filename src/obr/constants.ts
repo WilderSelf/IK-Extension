@@ -5,6 +5,9 @@ export const MODE_POSE = `${ID}/pose`;
 
 export const CTX_REMOVE = `${ID}/remove`;
 
+/** Metadata flag tagging our local-only on-canvas chain-highlight shapes. */
+export const HIGHLIGHT_META = `${ID}/highlight`;
+
 /**
  * Tool-activation hotkey (a single Owlbear tool `shortcut`). Chosen to avoid
  * Owlbear's built-in tool keys (W/F/D/M/Q/N) and fog/draw sub-mode keys; a bare

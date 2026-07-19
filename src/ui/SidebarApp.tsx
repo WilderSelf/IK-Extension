@@ -1,6 +1,13 @@
 import { type KeyboardEvent, useEffect, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
-import type { Chain, ChainMap, Stiffness } from "../types";
+import {
+  type Chain,
+  type ChainMap,
+  type Stiffness,
+  CHAIN_PALETTE,
+  STIFFNESS_LABELS,
+  STIFFNESS_ORDER,
+} from "../types";
 import {
   buildChain,
   chainHasLimits,
@@ -17,11 +24,13 @@ import {
   renameChain,
   renameNode,
   saveChains,
+  setChainColor,
   setChainLimits,
   setNodeStiffness,
   setParentNode,
   updateSettings,
 } from "../obr/chainStore";
+import { clearHighlights, highlightTokens } from "../obr/highlight";
 import { relativeBends } from "../ik/pose";
 import { getItemNames, getPositions, getRotations, getSelectedTokenIds, getSelection } from "../obr/scene";
 import { POSE_SHORTCUT } from "../obr/constants";
@@ -32,44 +41,34 @@ import { AnchorIcon, CaretRightIcon, CloseIcon, PencilIcon } from "./icons";
 const ADVANCED_KEY = "ik.advanced";
 const HELP_KEY = "ik.help";
 
-const STIFFNESS_OPTIONS: { value: Stiffness; label: string }[] = [
-  { value: "loose", label: "Loose" },
-  { value: "normal", label: "Normal" },
-  { value: "stiff", label: "Stiff" },
-];
-
 /**
- * A three-way Loose/Normal/Stiff picker. Used for a chain's default and for a
- * single token's override; when `inherited` the active segment reads dimmer to
- * signal the value is coming from the chain default rather than a per-token set.
+ * A 5-point Loose…Stiff slider. Used for a chain's default and for a single
+ * token's override; `inherited` dims it to signal the value is coming from the
+ * chain default (or ease ramp) rather than a per-token set. `ends` shows the
+ * Loose/Stiff endpoint labels (for the roomier chain-default control).
  */
-function StiffnessControl({
+function StiffnessSlider({
   value,
-  onSelect,
+  onChange,
   inherited = false,
-  mini = false,
+  ends = false,
   label,
 }: {
   value: Stiffness;
-  onSelect: (s: Stiffness) => void;
+  onChange: (s: Stiffness) => void;
   inherited?: boolean;
-  mini?: boolean;
+  ends?: boolean;
   label: string;
 }) {
+  const pos = Math.max(0, STIFFNESS_ORDER.indexOf(value));
   return (
-    <div className={`seg${mini ? " mini" : ""}${inherited ? " inherited" : ""}`}
-      role="group" aria-label={label}>
-      {STIFFNESS_OPTIONS.map((o) => (
-        <button key={o.value} type="button"
-          className={o.value === value ? "active" : ""}
-          aria-pressed={o.value === value}
-          title={inherited && o.value === value
-            ? `${o.label} (inherited from chain default)`
-            : o.label}
-          onClick={() => onSelect(o.value)}>
-          {o.label}
-        </button>
-      ))}
+    <div className={`stiff${inherited ? " inherited" : ""}`}>
+      {ends && <span className="stiff-end">Loose</span>}
+      <input type="range" min={0} max={STIFFNESS_ORDER.length - 1} step={1} value={pos}
+        aria-label={label} aria-valuetext={STIFFNESS_LABELS[value]}
+        title={`${STIFFNESS_LABELS[value]}${inherited ? " (inherited)" : ""}`}
+        onChange={(e) => onChange(STIFFNESS_ORDER[Number(e.target.value)])} />
+      {ends && <span className="stiff-end">Stiff</span>}
     </div>
   );
 }
@@ -80,6 +79,8 @@ export function SidebarApp() {
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [status, setStatus] = useState("");
   const [ready, setReady] = useState(false);
+  // The chain currently highlighted on the canvas (clicking its name toggles it).
+  const [highlightedChainId, setHighlightedChainId] = useState<string | null>(null);
   // "Advanced settings" reveals per-token stiffness (and, later, bend limits).
   // A local UI preference, not scene data, so it persists per browser.
   const [advanced, setAdvanced] = useState(() => {
@@ -168,6 +169,49 @@ export function SidebarApp() {
       cancelled = true; // ignore an out-of-order resolution from a prior render
     };
   }, [chains]);
+
+  // Clear the on-canvas highlight and forget which chain was lit.
+  const dropHighlight = () => {
+    clearHighlights().catch(() => {});
+    setHighlightedChainId(null);
+  };
+
+  // Highlight lifecycle: clear any stale highlight shapes on open and on close so
+  // they never outlive the popover.
+  useEffect(() => {
+    if (!ready) return;
+    clearHighlights().catch(() => {});
+    return () => {
+      clearHighlights().catch(() => {});
+    };
+  }, [ready]);
+
+  // If the highlighted chain is deleted, drop its highlight.
+  useEffect(() => {
+    if (highlightedChainId && !chains[highlightedChainId]) dropHighlight();
+  }, [chains, highlightedChainId]);
+
+  // Toggle the on-canvas highlight for a chain (and select its tokens so they're
+  // ready to pose). Clicking the already-highlighted chain clears it.
+  const onSelectChain = (chainId: string, ids: string[], color: string) => {
+    if (highlightedChainId === chainId) {
+      dropHighlight();
+      return;
+    }
+    highlightTokens(ids, color).catch(() => {});
+    setHighlightedChainId(chainId);
+    OBR.player.select(ids, true).catch(() => {});
+  };
+
+  // Recolour a chain; if it's the one currently highlighted, refresh the aura
+  // live so the canvas keeps up with the swatch.
+  const onSetChainColor = (chainId: string, color: string) => {
+    patch(setChainColor(chains, chainId, color));
+    if (highlightedChainId === chainId) {
+      const chain = chains[chainId];
+      if (chain) highlightTokens(orderedNodes(chain), color).catch(() => {});
+    }
+  };
 
   async function patch(next: ChainMap) {
     setChains(next);
@@ -290,7 +334,9 @@ export function SidebarApp() {
             onAttach={onAttach}
             onDetach={onDetach}
             onSelectNode={(id) => OBR.player.select([id], true).catch(() => {})}
-            onSelectChain={(ids) => OBR.player.select(ids, true).catch(() => {})}
+            onSelectChain={onSelectChain}
+            onSetColor={onSetChainColor}
+            highlighted={highlightedChainId === chain.id}
           />
         ))}
       </div>
@@ -309,6 +355,8 @@ function ChainCard({
   onDetach,
   onSelectNode,
   onSelectChain,
+  onSetColor,
+  highlighted,
 }: {
   chain: Chain;
   chains: ChainMap;
@@ -319,13 +367,22 @@ function ChainCard({
   onAttach: (chainId: string, parentTokenId: string) => void;
   onDetach: (chainId: string) => void;
   onSelectNode: (id: string) => void;
-  onSelectChain: (ids: string[]) => void;
+  onSelectChain: (chainId: string, ids: string[], color: string) => void;
+  onSetColor: (chainId: string, color: string) => void;
+  highlighted: boolean;
 }) {
   const nodes = orderedNodes(chain);
   const rootName = names[chain.rootId] ?? chain.rootId.slice(0, 8);
   // Display labels: the custom name if set, else the token's scene name.
   const chainLabel = chain.name?.trim() || rootName;
   const nodeLabel = (id: string) => chain.nodes[id]?.name?.trim() || names[id] || id.slice(0, 8);
+  // Highlight colour (neutral fallback for chains built before colours existed).
+  const chainColor = chain.color ?? "#8b8f9a";
+  const [showColors, setShowColors] = useState(false);
+  const pickColor = (c: string) => {
+    onSetColor(chain.id, c);
+    setShowColors(false);
+  };
 
   // Collapse the whole card to just its name; collapse each token to just its
   // name (hiding its stiffness sub-row). Tokens start collapsed so the list
@@ -361,15 +418,12 @@ function ChainCard({
   const onRemoveNode = (id: string) => onPatch(removeToken(chains, id));
   const setAutoRotate = (v: boolean) => onPatch(updateSettings(chains, chain.id, { autoRotate: v }));
   const chainDefault = chain.settings.defaultStiffness ?? "normal";
+  const ease = !!chain.settings.ease;
   const setDefaultStiffness = (s: Stiffness) =>
     onPatch(updateSettings(chains, chain.id, { defaultStiffness: s }));
-  // Clicking a node's active override clears it (back to the chain default);
-  // any other segment sets that override.
-  const setNodeStiff = (id: string, s: Stiffness) => {
-    const overridden = chain.nodes[id]?.stiffness !== undefined;
-    const next = overridden && chain.nodes[id]?.stiffness === s ? null : s;
-    onPatch(setNodeStiffness(chains, id, next));
-  };
+  const setEase = (v: boolean) => onPatch(updateSettings(chains, chain.id, { ease: v }));
+  const setNodeStiff = (id: string, s: Stiffness) => onPatch(setNodeStiffness(chains, id, s));
+  const clearNodeStiff = (id: string) => onPatch(setNodeStiffness(chains, id, null));
 
   // Bend limits, captured by posing. A chain needs at least one joint with a
   // reference bone above it (the 3rd token onward) to have anything to limit.
@@ -429,14 +483,21 @@ function ChainCard({
           onClick={() => setCollapsed((c) => !c)}>
           <CaretRightIcon size={12} className={`caret${collapsed ? "" : " open"}`} />
         </button>
+        <button className="swatch" style={{ background: chainColor }}
+          aria-label="Change chain highlight colour" aria-expanded={showColors}
+          title="Change this chain's highlight colour"
+          onClick={() => setShowColors((v) => !v)} />
         <div className="chain-heading">
           {editing?.type === "chain" ? (
             <input className="rename-input" autoFocus value={draft} aria-label="Chain name"
               title="Type a name for this chain, then press Enter (Esc to cancel)"
               onChange={(e) => setDraft(e.target.value)} onBlur={commitEdit} onKeyDown={renameKeys} />
           ) : (
-            <button className="chain-title-btn" onClick={() => onSelectChain(nodes)}
-              title="Select all of this chain's tokens on the map">
+            <button className={`chain-title-btn${highlighted ? " highlighted" : ""}`}
+              onClick={() => onSelectChain(chain.id, nodes, chainColor)}
+              title={highlighted
+                ? "Clear this chain's highlight"
+                : "Highlight this chain's tokens on the map in its colour"}>
               <span className="chain-title">{chainLabel}</span>
             </button>
           )}
@@ -456,6 +517,21 @@ function ChainCard({
         </div>
       </div>
 
+      {showColors && (
+        <div className="palette" role="group" aria-label="Chain highlight colour">
+          {CHAIN_PALETTE.map((c) => (
+            <button key={c} className={`swatch${c === chainColor ? " active" : ""}`}
+              style={{ background: c }} title={c} aria-label={`Set colour ${c}`}
+              onClick={() => pickColor(c)} />
+          ))}
+          <label className="swatch custom" title="Custom colour">
+            <input type="color" value={chainColor}
+              aria-label="Custom chain colour"
+              onChange={(e) => onSetColor(chain.id, e.target.value)} />
+          </label>
+        </div>
+      )}
+
       {!collapsed && (
        <>
       <div className="row">
@@ -469,12 +545,24 @@ function ChainCard({
       </div>
 
       {advanced && (
-        <div className="row">
-          <label title="How much each token resists bending — applies to tokens you haven't set individually below">
-            Stiffness (default)
-          </label>
-          <StiffnessControl value={chainDefault} onSelect={setDefaultStiffness}
-            label="Default stiffness for this chain" />
+        <div className="stiff-block">
+          <div className="row">
+            <label htmlFor={`ease-${chain.id}`}
+              title="Ramp stiffness along the chain — stiff at the base, easing to loose at the tip. Overrides the default; a per-token setting still wins.">
+              Ease (stiff base → loose tip)
+            </label>
+            <input id={`ease-${chain.id}`} type="checkbox" checked={ease}
+              onChange={(e) => setEase(e.target.checked)} />
+          </div>
+          {!ease && (
+            <div className="row">
+              <label title="Baseline resistance for every token you haven't set individually below">
+                Stiffness (default)
+              </label>
+              <StiffnessSlider ends value={chainDefault} onChange={setDefaultStiffness}
+                label="Default stiffness for this chain" />
+            </div>
+          )}
         </div>
       )}
 
@@ -577,10 +665,16 @@ function ChainCard({
                     title="How much this token's bone resists bending, relative to the rest of the chain">
                     Stiffness
                   </span>
-                  <StiffnessControl mini inherited={!overridden}
+                  <StiffnessSlider inherited={!overridden}
                     value={effectiveStiffness(chain, id)}
-                    onSelect={(s) => setNodeStiff(id, s)}
+                    onChange={(s) => setNodeStiff(id, s)}
                     label={`Stiffness for ${nodeLabel(id)}`} />
+                  {overridden && (
+                    <button className="mini-btn" onClick={() => clearNodeStiff(id)}
+                      title={ease ? "Clear this override — follow the ease ramp" : "Clear this override — follow the chain default"}>
+                      Inherit
+                    </button>
+                  )}
                 </div>
               )}
             </div>

@@ -452,6 +452,14 @@ kbd {
 }
 
 /* "Advanced" preference toggle in the app header. */
+/* The Bones + Advanced view toggles, grouped at the top-right of the header. */
+.top-toggles {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+
 .adv-toggle {
   display: inline-flex;
   align-items: center;

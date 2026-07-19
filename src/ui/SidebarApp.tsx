@@ -31,6 +31,7 @@ import {
   updateSettings,
 } from "../obr/chainStore";
 import { clearHighlights, highlightTokens } from "../obr/highlight";
+import { BONES_KEY, refreshBones } from "../obr/bones";
 import { relativeBends } from "../ik/pose";
 import { getItemNames, getPositions, getRotations, getSelectedTokenIds, getSelection } from "../obr/scene";
 import { POSE_SHORTCUT } from "../obr/constants";
@@ -97,6 +98,26 @@ export function SidebarApp() {
     } catch {
       /* private-mode / storage-disabled embeds: keep the in-memory toggle */
     }
+  };
+  // "Show bones" draws every chain's skeleton (bones + joints, in its colour) on
+  // top of the tokens — an authoring aid for seeing the rig's joints. A local,
+  // per-browser view preference (the tool's pose handler reads it too, so the
+  // key is shared, not the React state).
+  const [showBones, setShowBones] = useState(() => {
+    try {
+      return localStorage.getItem(BONES_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleBones = (v: boolean) => {
+    setShowBones(v);
+    try {
+      localStorage.setItem(BONES_KEY, v ? "1" : "0");
+    } catch {
+      /* storage-disabled embeds: keep the in-memory toggle */
+    }
+    refreshBones().catch(() => {});
   };
   // The intro help collapses to a single line; it's shown by default and the
   // last open/closed choice persists per browser (only "0" hides it).
@@ -191,6 +212,17 @@ export function SidebarApp() {
     if (highlightedChainId && !chains[highlightedChainId]) dropHighlight();
   }, [chains, highlightedChainId]);
 
+  // Keep the skeleton overlay in step with the chain set (build/delete/attach/
+  // rename-colour all flow through `chains`). refreshBones clears-then-rebuilds,
+  // and is a no-op clear while the toggle is off, so it's safe to run every time
+  // — it also sweeps any stale shapes on open. The overlay is a persistent view
+  // mode, so it deliberately survives the popover closing (poses redraw it from
+  // the tool's drag-end handler; turning the toggle off clears it).
+  useEffect(() => {
+    if (!ready) return;
+    refreshBones().catch(() => {});
+  }, [ready, chains]);
+
   // Toggle the on-canvas highlight for a chain. Clicking the already-highlighted
   // chain clears it. We deliberately DON'T OBR.player.select() the tokens here:
   // Owlbear paints its own accent-coloured selection outline over a selection,
@@ -279,12 +311,20 @@ export function SidebarApp() {
       <div className="app-top">
         <div className="app-header">
           <h1>IK Chains</h1>
-          <label className="adv-toggle"
-            title="Reveal extra per-token controls: stiffness weights and bend limits">
-            <input type="checkbox" checked={advanced}
-              onChange={(e) => toggleAdvanced(e.target.checked)} />
-            Advanced
-          </label>
+          <div className="top-toggles">
+            <label className="adv-toggle"
+              title="Draw every chain's skeleton (bones + joints, in its colour) on top of the tokens">
+              <input type="checkbox" checked={showBones}
+                onChange={(e) => toggleBones(e.target.checked)} />
+              Bones
+            </label>
+            <label className="adv-toggle"
+              title="Reveal extra per-token controls: stiffness weights and bend limits">
+              <input type="checkbox" checked={advanced}
+                onChange={(e) => toggleAdvanced(e.target.checked)} />
+              Advanced
+            </label>
+          </div>
         </div>
 
         <button className="primary" onClick={onNewChain} disabled={!ready}

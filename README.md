@@ -24,6 +24,11 @@ version is preserved at the git tag `v0.6-full`.
   whole chain.
 - **Auto-rotate.** Tokens rotate to face along their bone as the chain flexes,
   keeping the orientation you built them with.
+- **Linked sub-chains.** A chain can be *attached* to a node of another chain so it
+  rides along when that one moves — a crab's pincher on an arm — while still posing
+  independently (opening the pincher doesn't move the arm). Build the sub-chain
+  anchor-first (select a token of the main chain, then the sub-chain's tokens), or use
+  a chain card's **Attach to selection** button.
 - **Persist & sync.** Chains live in the scene's metadata, so they survive reloads
   and sync to every connected client. Deleting a token trims it (and anything past
   it) from its chain.
@@ -95,11 +100,15 @@ Chain {
     boneOffsetDeg?: number               // authored rotation relative to the bone
   }>
   settings: { autoRotate: boolean }
+  parentNodeId?: string                  // a node of ANOTHER chain this one follows
 }
 ```
 
-A chain is a single linear strand: the root, then one node after another. There is
-no branching — a creature with several limbs is several chains.
+Each chain is a single linear strand: the root, then one node after another. There
+is no branching *within* a chain — a creature with several limbs is several chains.
+An optional `parentNodeId` links a chain to a node of another chain, so a sub-rig
+rides along when its parent moves (the link is directional — posing a chain never
+moves its parent).
 
 ## Development
 
@@ -142,8 +151,11 @@ helper. If the repo is renamed or moved to a root domain, update `base` in
 
 ## Design decisions & non-goals
 
-- **Single linear chains only.** No branching or multi-effector solving. Multiple
-  limbs = multiple chains.
+- **Single linear chains, optionally linked.** No branching or multi-effector solving
+  *within* a chain. Multiple limbs = multiple chains — and a chain can *follow* a node
+  of another so a sub-rig moves with its parent while still posing on its own. This
+  avoids the old "lock a joint" sub-base machinery: posing the sub-chain simply doesn't
+  touch the parent, because they're separate chains.
 - **Root pinned during IK.** Dragging the root translates; dragging anything else
   solves. Keeps posing predictable.
 - **Rigid bones.** Bone lengths are captured at build and preserved while posing.

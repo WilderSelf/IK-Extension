@@ -122,7 +122,7 @@ export function removeToken(chains: ChainMap, tokenId: string): ChainMap {
   const c = next[chain.id];
   if (c.rootId === tokenId) {
     delete next[chain.id];
-    return next;
+    return detachDangling(next);
   }
   const order = orderedNodes(c);
   const idx = order.indexOf(tokenId);
@@ -130,7 +130,7 @@ export function removeToken(chains: ChainMap, tokenId: string): ChainMap {
   const nodes: Record<string, ChainNode> = {};
   for (let i = 0; i < idx; i++) nodes[order[i]] = c.nodes[order[i]];
   c.nodes = nodes;
-  return next;
+  return detachDangling(next);
 }
 
 /**
@@ -153,14 +153,98 @@ export function pruneMissing(chains: ChainMap, existingIds: Set<string>): ChainM
     for (const id of keep) nodes[id] = chain.nodes[id];
     next[chainId] = { ...chain, nodes };
   }
-  return next;
+  return detachDangling(next);
 }
 
-/** Delete an entire chain. */
+/** Delete an entire chain (orphaning any chains that followed one of its nodes). */
 export function deleteChain(chains: ChainMap, chainId: string): ChainMap {
   const next = clone(chains);
   delete next[chainId];
+  return detachDangling(next);
+}
+
+// ---- Attachment (a chain that follows a node of another chain) -------------
+
+/**
+ * Set or clear this chain's parent link — the token id (a node of a DIFFERENT
+ * chain) it should ride with. Passing `null` detaches. Rejects (returns the map
+ * unchanged) if the target isn't a node of another existing chain, or if the
+ * link would create a cycle.
+ */
+export function setParentNode(
+  chains: ChainMap,
+  chainId: string,
+  parentTokenId: string | null,
+): ChainMap {
+  if (!chains[chainId]) return chains;
+  const next = clone(chains);
+  if (parentTokenId === null) {
+    delete next[chainId].parentNodeId;
+    return next;
+  }
+  const owner = findChainForToken(chains, parentTokenId);
+  if (!owner || owner.id === chainId) return chains; // must be another chain's node
+  // Walk parent links up from the target chain; reaching chainId means a cycle.
+  const seen = new Set<string>();
+  let cur: string | undefined = owner.id;
+  while (cur && !seen.has(cur)) {
+    if (cur === chainId) return chains;
+    seen.add(cur);
+    const pid: string | undefined = chains[cur]?.parentNodeId;
+    cur = pid ? findChainForToken(chains, pid)?.id : undefined;
+  }
+  next[chainId].parentNodeId = parentTokenId;
   return next;
+}
+
+/** The id of the chain that owns `chain`'s parent node, or undefined if top-level. */
+export function parentChainId(chains: ChainMap, chainId: string): string | undefined {
+  const pid = chains[chainId]?.parentNodeId;
+  return pid ? findChainForToken(chains, pid)?.id : undefined;
+}
+
+/**
+ * Ids of every chain that (transitively) follows a node of `chainId`, nearest
+ * first. BFS over the attachment forest, cycle-guarded.
+ */
+export function descendantChainIds(chains: ChainMap, chainId: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>([chainId]);
+  const queue = [chainId];
+  while (queue.length) {
+    const cur = queue.shift()!;
+    for (const id of Object.keys(chains)) {
+      if (seen.has(id)) continue;
+      if (parentChainId(chains, id) === cur) {
+        seen.add(id);
+        out.push(id);
+        queue.push(id);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Clear any parent link whose target token is no longer a node of a different
+ * existing chain (its parent chain or node was deleted / truncated / pruned).
+ * Returns a new map; inputs are not mutated.
+ */
+function detachDangling(chains: ChainMap): ChainMap {
+  const out: ChainMap = {};
+  for (const [id, chain] of Object.entries(chains)) {
+    if (chain.parentNodeId != null) {
+      const owner = findChainForToken(chains, chain.parentNodeId);
+      if (!owner || owner.id === id) {
+        const copy: Chain = { ...chain };
+        delete copy.parentNodeId;
+        out[id] = copy;
+        continue;
+      }
+    }
+    out[id] = chain;
+  }
+  return out;
 }
 
 /** Merge partial settings into a chain (currently just `autoRotate`). */

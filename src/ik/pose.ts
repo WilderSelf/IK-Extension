@@ -1,5 +1,5 @@
-import type { Chain, ChainMap, Vec2 } from "../types";
-import { descendantChainIds, orderedNodes, parentChainId } from "../model/chains";
+import { type Chain, type ChainMap, type Vec2, STIFFNESS_RETENTION } from "../types";
+import { descendantChainIds, effectiveStiffness, orderedNodes, parentChainId } from "../model/chains";
 import { solveChain, type SolveOptions } from "./fabrik";
 import { add, angle, dist, rotateAround, sub } from "./vec";
 
@@ -62,7 +62,11 @@ export function solvePose(
   const snap: Record<string, Vec2> = { ...out };
   const pts = path.map((id) => snap[id]);
   const rest = path.slice(1).map((id) => chain.nodes[id].restLength);
-  const solved = solveChain(pts, rest, targetPos, opts);
+  // Per-bone stiffness, aligned with `rest`: bone b (path[b]->path[b+1]) is owned
+  // by its child node path[b+1], so its resistance is that node's effective
+  // stiffness. All-normal yields all-zero → the solver runs its plain path.
+  const stiffness = path.slice(1).map((id) => STIFFNESS_RETENTION[effectiveStiffness(chain, id)]);
+  const solved = solveChain(pts, rest, targetPos, { ...opts, stiffness });
   path.forEach((id, i) => {
     out[id] = solved[i];
   });

@@ -68,6 +68,18 @@ describe("solvePose", () => {
     const { positions: out } = solvePose(chain, positions, "R", { x: 99, y: 99 });
     expect(out).toEqual(positions);
   });
+
+  it("a stiff first bone bends less than a loose one when a tip is posed", () => {
+    const target = { x: 10, y: 20 };
+    const stiff = straightChain();
+    stiff.chain.nodes["A"].stiffness = "stiff";
+    const loose = straightChain();
+    loose.chain.nodes["A"].stiffness = "loose";
+    const outStiff = solvePose(stiff.chain, stiff.positions, "C", target).positions;
+    const outLoose = solvePose(loose.chain, loose.positions, "C", target).positions;
+    // A resists moving off its rest position more when stiff.
+    expect(dist(outStiff.A, { x: 10, y: 0 })).toBeLessThan(dist(outLoose.A, { x: 10, y: 0 }));
+  });
 });
 
 describe("boneAngles", () => {

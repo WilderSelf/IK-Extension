@@ -1,15 +1,17 @@
 import { useEffect, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
-import type { Chain, ChainMap } from "../types";
+import type { Chain, ChainMap, Stiffness } from "../types";
 import {
   buildChain,
   deleteChain,
+  effectiveStiffness,
   findChainForToken,
   getChains,
   onChainsChange,
   orderedNodes,
   removeToken,
   saveChains,
+  setNodeStiffness,
   setParentNode,
   updateSettings,
 } from "../obr/chainStore";
@@ -18,12 +20,74 @@ import { POSE_SHORTCUT } from "../obr/constants";
 import { useObrTheme } from "./theme";
 import { AnchorIcon, CaretRightIcon, CloseIcon } from "./icons";
 
+/** localStorage key for the per-browser "Advanced settings" preference. */
+const ADVANCED_KEY = "ik.advanced";
+
+const STIFFNESS_OPTIONS: { value: Stiffness; label: string }[] = [
+  { value: "loose", label: "Loose" },
+  { value: "normal", label: "Normal" },
+  { value: "stiff", label: "Stiff" },
+];
+
+/**
+ * A three-way Loose/Normal/Stiff picker. Used for a chain's default and for a
+ * single token's override; when `inherited` the active segment reads dimmer to
+ * signal the value is coming from the chain default rather than a per-token set.
+ */
+function StiffnessControl({
+  value,
+  onSelect,
+  inherited = false,
+  mini = false,
+  label,
+}: {
+  value: Stiffness;
+  onSelect: (s: Stiffness) => void;
+  inherited?: boolean;
+  mini?: boolean;
+  label: string;
+}) {
+  return (
+    <div className={`seg${mini ? " mini" : ""}${inherited ? " inherited" : ""}`}
+      role="group" aria-label={label}>
+      {STIFFNESS_OPTIONS.map((o) => (
+        <button key={o.value} type="button"
+          className={o.value === value ? "active" : ""}
+          aria-pressed={o.value === value}
+          title={inherited && o.value === value
+            ? `${o.label} (inherited from chain default)`
+            : o.label}
+          onClick={() => onSelect(o.value)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function SidebarApp() {
   const [chains, setChains] = useState<ChainMap>({});
   const [names, setNames] = useState<Record<string, string>>({});
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [status, setStatus] = useState("");
   const [ready, setReady] = useState(false);
+  // "Advanced settings" reveals per-token stiffness (and, later, bend limits).
+  // A local UI preference, not scene data, so it persists per browser.
+  const [advanced, setAdvanced] = useState(() => {
+    try {
+      return localStorage.getItem(ADVANCED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleAdvanced = (v: boolean) => {
+    setAdvanced(v);
+    try {
+      localStorage.setItem(ADVANCED_KEY, v ? "1" : "0");
+    } catch {
+      /* private-mode / storage-disabled embeds: keep the in-memory toggle */
+    }
+  };
   useObrTheme();
 
   useEffect(() => {
@@ -133,7 +197,14 @@ export function SidebarApp() {
 
   return (
     <div>
-      <div className="app-header"><h1>IK Chains</h1></div>
+      <div className="app-header">
+        <h1>IK Chains</h1>
+        <label className="adv-toggle" title="Show per-token stiffness controls">
+          <input type="checkbox" checked={advanced}
+            onChange={(e) => toggleAdvanced(e.target.checked)} />
+          Advanced
+        </label>
+      </div>
       <p className="hint">
         Rig tokens into a chain and pose them like a limb. Select tokens
         {" "}<strong>root first, then outward</strong>, then build the chain. Pick the
@@ -168,6 +239,7 @@ export function SidebarApp() {
           chains={chains}
           names={names}
           selected={selected}
+          advanced={advanced}
           onPatch={patch}
           onAttach={onAttach}
           onDetach={onDetach}
@@ -183,6 +255,7 @@ function ChainCard({
   chains,
   names,
   selected,
+  advanced,
   onPatch,
   onAttach,
   onDetach,
@@ -192,6 +265,7 @@ function ChainCard({
   chains: ChainMap;
   names: Record<string, string>;
   selected: ReadonlySet<string>;
+  advanced: boolean;
   onPatch: (next: ChainMap) => Promise<void>;
   onAttach: (chainId: string, parentTokenId: string) => void;
   onDetach: (chainId: string) => void;
@@ -203,6 +277,16 @@ function ChainCard({
   const onDelete = () => onPatch(deleteChain(chains, chain.id));
   const onRemoveNode = (id: string) => onPatch(removeToken(chains, id));
   const setAutoRotate = (v: boolean) => onPatch(updateSettings(chains, chain.id, { autoRotate: v }));
+  const chainDefault = chain.settings.defaultStiffness ?? "normal";
+  const setDefaultStiffness = (s: Stiffness) =>
+    onPatch(updateSettings(chains, chain.id, { defaultStiffness: s }));
+  // Clicking a node's active override clears it (back to the chain default);
+  // any other segment sets that override.
+  const setNodeStiff = (id: string, s: Stiffness) => {
+    const overridden = chain.nodes[id]?.stiffness !== undefined;
+    const next = overridden && chain.nodes[id]?.stiffness === s ? null : s;
+    onPatch(setNodeStiffness(chains, id, next));
+  };
 
   // Attachment: a single selected token in ANOTHER chain can become this chain's
   // parent node, so this chain rides along when that one moves.
@@ -231,6 +315,16 @@ function ChainCard({
           onChange={(e) => setAutoRotate(e.target.checked)} />
       </div>
 
+      {advanced && (
+        <div className="row">
+          <label title="How much each token resists bending — applies to tokens you haven't set individually below">
+            Stiffness (default)
+          </label>
+          <StiffnessControl value={chainDefault} onSelect={setDefaultStiffness}
+            label="Default stiffness for this chain" />
+        </div>
+      )}
+
       {parentName ? (
         <div className="row">
           <span className="chain-sub" title="This chain follows that token and rides along when it moves">
@@ -256,23 +350,35 @@ function ChainCard({
         <div className="nodes-title">Tokens</div>
         {nodes.map((id) => {
           const isRoot = id === chain.rootId;
+          const overridden = chain.nodes[id]?.stiffness !== undefined;
           return (
             <div className={`node${selected.has(id) ? " selected" : ""}`} key={id}
               style={{ paddingLeft: isRoot ? 8 : 22 }}>
-              <button type="button" className="node-main node-select"
-                title="Select this token on the map" onClick={() => onSelectNode(id)}>
-                {isRoot
-                  ? <span className="node-icon root" title="Pinned root"><AnchorIcon size={13} /></span>
-                  : <span className="node-icon"><CaretRightIcon size={12} /></span>}
-                <span className="node-name">{names[id] ?? id.slice(0, 8)}</span>
-                {isRoot && <span className="badge">root</span>}
-              </button>
-              <div className="node-ctl">
-                <button className="mini-btn danger icon-btn"
-                  title={isRoot ? "Delete the whole chain" : "Remove this token and the strand past it"}
-                  aria-label={isRoot ? "Delete the whole chain" : `Remove ${names[id] ?? "token"}`}
-                  onClick={() => onRemoveNode(id)}><CloseIcon size={13} /></button>
+              <div className="node-row">
+                <button type="button" className="node-main node-select"
+                  title="Select this token on the map" onClick={() => onSelectNode(id)}>
+                  {isRoot
+                    ? <span className="node-icon root" title="Pinned root"><AnchorIcon size={13} /></span>
+                    : <span className="node-icon"><CaretRightIcon size={12} /></span>}
+                  <span className="node-name">{names[id] ?? id.slice(0, 8)}</span>
+                  {isRoot && <span className="badge">root</span>}
+                </button>
+                <div className="node-ctl">
+                  <button className="mini-btn danger icon-btn"
+                    title={isRoot ? "Delete the whole chain" : "Remove this token and the strand past it"}
+                    aria-label={isRoot ? "Delete the whole chain" : `Remove ${names[id] ?? "token"}`}
+                    onClick={() => onRemoveNode(id)}><CloseIcon size={13} /></button>
+                </div>
               </div>
+              {advanced && !isRoot && (
+                <div className="node-stiffness">
+                  <span className="node-stiffness-label">Stiffness</span>
+                  <StiffnessControl mini inherited={!overridden}
+                    value={effectiveStiffness(chain, id)}
+                    onSelect={(s) => setNodeStiff(id, s)}
+                    label={`Stiffness for ${names[id] ?? "token"}`} />
+                </div>
+              )}
             </div>
           );
         })}

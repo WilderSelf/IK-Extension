@@ -58,3 +58,44 @@ describe("solveChain (FABRIK)", () => {
     expect(JSON.stringify(points)).toEqual(snapshot);
   });
 });
+
+describe("solveChain — stiffness", () => {
+  const line = () => pts([0, 0], [10, 0], [20, 0], [30, 0]);
+  const rest = [10, 10, 10];
+
+  it("all-zero stiffness is identical to the unweighted solve", () => {
+    const target = { x: 10, y: 20 };
+    const plain = solveChain(line(), rest, target);
+    const weighted = solveChain(line(), rest, target, { stiffness: [0, 0, 0] });
+    expect(weighted).toEqual(plain);
+  });
+
+  it("a stiff first bone keeps its node nearer its start than a loose one", () => {
+    const target = { x: 10, y: 20 };
+    const stiff = solveChain(line(), rest, target, { stiffness: [0.7, 0, 0] });
+    const loose = solveChain(line(), rest, target, { stiffness: [-0.4, 0, 0] });
+    const start = { x: 10, y: 0 };
+    expect(dist(stiff[1], start)).toBeLessThan(dist(loose[1], start));
+  });
+
+  it("preserves rest lengths under stiffness", () => {
+    const out = solveChain(line(), rest, { x: 8, y: 16 }, { stiffness: [0.7, -0.4, 0.7] });
+    restOf(out).forEach((l, i) => expect(l).toBeCloseTo(rest[i], 4));
+  });
+
+  it("keeps the root pinned and stays finite under stiffness", () => {
+    const out = solveChain(line(), rest, { x: 5, y: 12 }, { stiffness: [0.7, 0.7, 0.7] });
+    expect(out[0]).toEqual({ x: 0, y: 0 });
+    out.forEach((pt) => {
+      expect(Number.isFinite(pt.x)).toBe(true);
+      expect(Number.isFinite(pt.y)).toBe(true);
+    });
+  });
+
+  it("still respects stiffness when the target is out of reach", () => {
+    // Far target would normally straighten in one shot; with stiffness the
+    // iterative path runs instead, so lengths must still hold.
+    const out = solveChain(line(), rest, { x: 500, y: 0 }, { stiffness: [0.7, 0, 0] });
+    restOf(out).forEach((l, i) => expect(l).toBeCloseTo(rest[i], 4));
+  });
+});

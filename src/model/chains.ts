@@ -5,7 +5,14 @@
  * A chain is a single LINEAR strand: one pinned root, each subsequent node
  * parented to the one before it, no branching.
  */
-import { type Chain, type ChainMap, type ChainNode, type Vec2, defaultSettings } from "../types";
+import {
+  type Chain,
+  type ChainMap,
+  type ChainNode,
+  type Stiffness,
+  type Vec2,
+  defaultSettings,
+} from "../types";
 
 const clone = (chains: ChainMap): ChainMap => JSON.parse(JSON.stringify(chains)) as ChainMap;
 
@@ -259,7 +266,7 @@ function detachDangling(chains: ChainMap): ChainMap {
   return out;
 }
 
-/** Merge partial settings into a chain (currently just `autoRotate`). */
+/** Merge partial settings into a chain (`autoRotate`, `defaultStiffness`). */
 export function updateSettings(
   chains: ChainMap,
   chainId: string,
@@ -269,4 +276,33 @@ export function updateSettings(
   if (!next[chainId]) return chains;
   next[chainId].settings = { ...next[chainId].settings, ...patch };
   return next;
+}
+
+/**
+ * Set or clear a single node's bend-resistance override. Passing `null` clears
+ * the override so the node falls back to its chain's `defaultStiffness`. No-ops
+ * (returns the map unchanged) if the token isn't in any chain or is its chain's
+ * root — the root has no incoming bone to stiffen.
+ */
+export function setNodeStiffness(
+  chains: ChainMap,
+  tokenId: string,
+  stiffness: Stiffness | null,
+): ChainMap {
+  const chain = findChainForToken(chains, tokenId);
+  if (!chain || chain.rootId === tokenId) return chains;
+  const next = clone(chains);
+  const node = next[chain.id].nodes[tokenId];
+  if (stiffness === null) delete node.stiffness;
+  else node.stiffness = stiffness;
+  return next;
+}
+
+/**
+ * The bend-resistance actually in force for a node: its own override if set,
+ * otherwise the chain default, falling back to `normal` (plain FABRIK) for
+ * chains persisted before the setting existed.
+ */
+export function effectiveStiffness(chain: Chain, nodeId: string): Stiffness {
+  return chain.nodes[nodeId]?.stiffness ?? chain.settings.defaultStiffness ?? "normal";
 }

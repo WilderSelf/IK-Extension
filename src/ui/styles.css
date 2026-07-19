@@ -172,11 +172,18 @@ kbd {
 
 .node {
   display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 2px 0;
+  border-radius: 6px;
+}
+
+/* The token's main line: name (doubles as a select button) + remove button. */
+.node-row {
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 2px 0;
-  border-radius: 6px;
 }
 
 /* Highlight a node whose token is selected on the map (and vice-versa). */
@@ -258,6 +265,74 @@ kbd {
   gap: 4px;
   padding: 3px 5px;
   line-height: 1;
+}
+
+/* "Advanced" preference toggle in the app header. */
+.adv-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--ik-text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Three-way Loose/Normal/Stiff segmented control. */
+.seg {
+  display: inline-flex;
+  flex: none;
+  border: 1px solid var(--ik-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.seg button {
+  border: none;
+  border-right: 1px solid var(--ik-border);
+  border-radius: 0;
+  padding: 3px 9px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--ik-text-secondary);
+  background: transparent;
+}
+
+.seg button:last-child {
+  border-right: none;
+}
+
+.seg button.active {
+  background: var(--ik-primary-soft);
+  color: var(--ik-text);
+  font-weight: 600;
+}
+
+/* Inherited (no per-token override): the active segment reads as a quiet hint
+   rather than a committed choice. */
+.seg.inherited button.active {
+  background: var(--ik-hover);
+  color: var(--ik-text-secondary);
+  font-weight: 400;
+}
+
+.seg.mini button {
+  padding: 1px 7px;
+  font-size: 11px;
+}
+
+/* Per-token stiffness sub-row under a node's main line. */
+.node-stiffness {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-left: 22px;
+}
+
+.node-stiffness-label {
+  font-size: 11px;
+  color: var(--ik-text-secondary);
 }
 
 .notice {

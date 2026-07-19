@@ -12,6 +12,8 @@ export {
   pruneMissing,
   deleteChain,
   updateSettings,
+  setNodeStiffness,
+  effectiveStiffness,
   setParentNode,
   parentChainId,
   descendantChainIds,

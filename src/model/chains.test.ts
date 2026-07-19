@@ -155,4 +155,12 @@ describe("attachment (setParentNode / lifecycle)", () => {
     expect(descendantChainIds(map, a)).toEqual([b]);
     expect(descendantChainIds(map, b)).toEqual([]);
   });
+
+  it("resolves a shared anchor to the chain where it's a segment", () => {
+    // A: A0-A1-A2. Sub-chain P rooted at the shared pivot A2: A2-P1.
+    let map = buildChain({}, ["A0", "A1", "A2"], pos({ A0: [0, 0], A1: [10, 0], A2: [20, 0] }), { A0: 0, A1: 0, A2: 0 })![0];
+    map = buildChain(map, ["A2", "P1"], pos({ A2: [20, 0], P1: [20, 10] }), { A2: 0, P1: 0 })![0];
+    // A2 is a non-root segment of A and the root of P -> resolves to A.
+    expect(findChainForToken(map, "A2")!.id).toBe(idOf(map, "A0"));
+  });
 });

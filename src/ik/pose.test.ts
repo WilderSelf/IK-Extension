@@ -116,6 +116,32 @@ describe("poseRig (linked chains)", () => {
     expect(out.A2).toEqual({ x: 20, y: 0 });
   });
 
+  it("articulates a sub-chain rooted at a shared anchor, parent left put", () => {
+    // A: A0-A1-A2. Sub-chain P rooted at the shared pivot A2: A2-P1.
+    let chains: ChainMap = buildChain({}, ["A0", "A1", "A2"],
+      pos({ A0: [0, 0], A1: [10, 0], A2: [20, 0] }), { A0: 0, A1: 0, A2: 0 })![0];
+    chains = buildChain(chains, ["A2", "P1"], pos({ A2: [20, 0], P1: [20, 10] }), { A2: 0, P1: 0 })![0];
+    const aId = Object.values(chains).find((c) => c.rootId === "A0")!.id;
+    const pId = Object.values(chains).find((c) => c.rootId === "A2")!.id;
+    chains = setParentNode(chains, pId, "A2");
+    const base = pos({ A0: [0, 0], A1: [10, 0], A2: [20, 0], P1: [20, 10] });
+
+    // Pose the sub-chain (grab P1): pivot A2 pinned, P1 swings, arm untouched,
+    // and P1 (a non-root segment now) gets a rotation.
+    const p = poseRig(chains, pId, base, { mode: "solve", grabbedId: "P1", target: { x: 28, y: 6 } });
+    expect(p.positions.A0).toEqual({ x: 0, y: 0 });
+    expect(p.positions.A1).toEqual({ x: 10, y: 0 });
+    expect(p.positions.A2).toEqual({ x: 20, y: 0 }); // shared pivot pinned
+    expect(dist(p.positions.A2, p.positions.P1)).toBeCloseTo(10, 5);
+    expect(p.positions.P1).not.toEqual(base.P1);
+    expect(p.rotations.P1).not.toBeUndefined();
+
+    // Pose the arm: the sub-chain (pivot + P1) rides along.
+    const q = poseRig(chains, aId, base, { mode: "translate", delta: { x: 3, y: 4 } });
+    expect(q.positions.A2).toEqual({ x: 23, y: 4 });
+    expect(q.positions.P1).toEqual({ x: 23, y: 14 });
+  });
+
   it("carries a grandchild two levels down", () => {
     let { chains, aId, base } = rig();
     chains = buildChain(chains, ["C0", "C1"], pos({ C0: [30, 20], C1: [40, 20] }), { C0: 0, C1: 0 })![0];

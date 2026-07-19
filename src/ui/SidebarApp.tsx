@@ -88,14 +88,16 @@ export function SidebarApp() {
       return;
     }
     // If the first selected token is already in a chain, treat it as an ANCHOR:
-    // build the new chain from the remaining (unchained) tokens and link it to
-    // that node, so the sub-rig follows when the anchor's chain moves.
+    // it becomes the sub-chain's ROOT (a pivot shared with its chain), so the new
+    // tokens articulate off it, and the sub-chain rides along when the anchor's
+    // chain moves.
     const anchor = findChainForToken(chains, ids[0]) ? ids[0] : null;
-    const buildIds = (anchor ? ids.slice(1) : ids).filter((id) => !findChainForToken(chains, id));
+    const rest = (anchor ? ids.slice(1) : ids).filter((id) => !findChainForToken(chains, id));
+    const buildIds = anchor ? [anchor, ...rest] : rest;
     if (buildIds.length < 2) {
       setStatus(
         anchor
-          ? "To attach a sub-chain, select the anchor token first, then at least two new (unchained) tokens, root first."
+          ? "Select the anchor token (already in a chain) first, then at least one new token for the sub-chain."
           : "Select at least two unchained tokens — root first, then outward.",
       );
       return;
@@ -110,7 +112,7 @@ export function SidebarApp() {
     await patch(next);
     setStatus(
       anchor
-        ? `Built a ${buildIds.length}-token sub-chain that follows ${names[anchor] ?? "the anchor"} and rides along with it.`
+        ? `Built a sub-chain pivoting at ${names[anchor] ?? "the anchor"} — it flexes on its own and follows when that chain moves.`
         : `Built a ${buildIds.length}-token chain. Pick the IK Chains tool (or press ${POSE_SHORTCUT}) and drag a token to pose it.`,
     );
   }

@@ -1,7 +1,29 @@
 import { type Chain, type ChainMap, type Vec2, STIFFNESS_RETENTION } from "../types";
 import { descendantChainIds, effectiveStiffness, orderedNodes, parentChainId } from "../model/chains";
 import { solveChain, type SolveOptions } from "./fabrik";
-import { add, angle, dist, rotateAround, sub } from "./vec";
+import { add, angle, dist, rotateAround, sub, wrapAngle } from "./vec";
+
+/**
+ * The signed relative bend at each *limitable* joint of the chain, keyed by
+ * token id — the outgoing bone's angle minus the incoming bone's, wrapped to
+ * (-π, π]. Only nodes from the third onward have a reference bone above them, so
+ * the root and the first movable node are absent. This is what "capture from
+ * pose" reads and what the solver's bend limits clamp.
+ */
+export function relativeBends(
+  chain: Chain,
+  positions: Record<string, Vec2>,
+): Record<string, number> {
+  const order = orderedNodes(chain);
+  const out: Record<string, number> = {};
+  for (let i = 2; i < order.length; i++) {
+    const a = positions[order[i - 2]];
+    const b = positions[order[i - 1]];
+    const c = positions[order[i]];
+    if (a && b && c) out[order[i]] = wrapAngle(angle(b, c) - angle(a, b));
+  }
+  return out;
+}
 
 /** How a chain is being dragged: its root (rigid translate) or a node (solve). */
 export type Grab =
@@ -66,7 +88,10 @@ export function solvePose(
   // by its child node path[b+1], so its resistance is that node's effective
   // stiffness. All-normal yields all-zero → the solver runs its plain path.
   const stiffness = path.slice(1).map((id) => STIFFNESS_RETENTION[effectiveStiffness(chain, id)]);
-  const solved = solveChain(pts, rest, targetPos, { ...opts, stiffness });
+  // Per-joint bend limits, aligned with `path` (points): a limit at point i
+  // clamps the bend there, so it applies only for i >= 2 (needs a bone above).
+  const limits = path.map((id, i) => (i >= 2 ? chain.nodes[id].limit ?? null : null));
+  const solved = solveChain(pts, rest, targetPos, { ...opts, stiffness, limits });
   path.forEach((id, i) => {
     out[id] = solved[i];
   });

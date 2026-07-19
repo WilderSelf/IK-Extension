@@ -6,6 +6,7 @@
  * parented to the one before it, no branching.
  */
 import {
+  type BendLimit,
   type Chain,
   type ChainMap,
   type ChainNode,
@@ -305,4 +306,67 @@ export function setNodeStiffness(
  */
 export function effectiveStiffness(chain: Chain, nodeId: string): Stiffness {
   return chain.nodes[nodeId]?.stiffness ?? chain.settings.defaultStiffness ?? "normal";
+}
+
+// ---- Bend limits (captured by posing) --------------------------------------
+
+/** True if any joint in the chain carries a captured bend limit. */
+export function chainHasLimits(chain: Chain): boolean {
+  return Object.values(chain.nodes).some((n) => n.limit != null);
+}
+
+/** The chain's current per-node bend limits, keyed by token id. */
+export function chainLimits(chain: Chain): Record<string, BendLimit> {
+  const out: Record<string, BendLimit> = {};
+  for (const [id, n] of Object.entries(chain.nodes)) {
+    if (n.limit) out[id] = { min: n.limit.min, max: n.limit.max };
+  }
+  return out;
+}
+
+/**
+ * Replace a chain's bend limits wholesale: nodes named in `limits` get that
+ * interval, every other node is freed. No-ops if the chain is missing.
+ */
+export function setChainLimits(
+  chains: ChainMap,
+  chainId: string,
+  limits: Record<string, BendLimit>,
+): ChainMap {
+  const next = clone(chains);
+  const chain = next[chainId];
+  if (!chain) return chains;
+  for (const [id, n] of Object.entries(chain.nodes)) {
+    const l = limits[id];
+    if (l) n.limit = { min: l.min, max: l.max };
+    else delete n.limit;
+  }
+  return next;
+}
+
+/** Free every joint in the chain (remove all captured limits). */
+export function clearLimits(chains: ChainMap, chainId: string): ChainMap {
+  const next = clone(chains);
+  const chain = next[chainId];
+  if (!chain) return chains;
+  for (const n of Object.values(chain.nodes)) delete n.limit;
+  return next;
+}
+
+/**
+ * Widen (or create) each joint's interval so it includes the given `bends`. Pure
+ * range math on a plain limits map — the UI unions two captured poses through
+ * this before persisting, so a single degenerate pose is never stored alone.
+ */
+export function expandLimits(
+  existing: Record<string, BendLimit>,
+  bends: Record<string, number>,
+): Record<string, BendLimit> {
+  const out: Record<string, BendLimit> = {};
+  for (const [id, l] of Object.entries(existing)) out[id] = { min: l.min, max: l.max };
+  for (const [id, v] of Object.entries(bends)) {
+    const cur = out[id];
+    out[id] = cur ? { min: Math.min(cur.min, v), max: Math.max(cur.max, v) } : { min: v, max: v };
+  }
+  return out;
 }

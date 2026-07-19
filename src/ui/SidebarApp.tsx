@@ -3,18 +3,24 @@ import OBR from "@owlbear-rodeo/sdk";
 import type { Chain, ChainMap, Stiffness } from "../types";
 import {
   buildChain,
+  chainHasLimits,
+  chainLimits,
+  clearLimits,
   deleteChain,
   effectiveStiffness,
+  expandLimits,
   findChainForToken,
   getChains,
   onChainsChange,
   orderedNodes,
   removeToken,
   saveChains,
+  setChainLimits,
   setNodeStiffness,
   setParentNode,
   updateSettings,
 } from "../obr/chainStore";
+import { relativeBends } from "../ik/pose";
 import { getItemNames, getPositions, getRotations, getSelectedTokenIds, getSelection } from "../obr/scene";
 import { POSE_SHORTCUT } from "../obr/constants";
 import { useObrTheme } from "./theme";
@@ -318,6 +324,45 @@ function ChainCard({
     onPatch(setNodeStiffness(chains, id, next));
   };
 
+  // Bend limits, captured by posing. A chain needs at least one joint with a
+  // reference bone above it (the 3rd token onward) to have anything to limit.
+  const limited = chainHasLimits(chain);
+  const canLimit = nodes.length >= 3;
+  // The first extreme is held here until the second capture unions them into a
+  // real range; a lone pose is never persisted (it would freeze the joint).
+  const [pendingEdge, setPendingEdge] = useState<Record<string, number> | null>(null);
+  const [capturing, setCapturing] = useState(false);
+  const onCapture = async () => {
+    if (capturing) return;
+    setCapturing(true);
+    try {
+      const positions = await getPositions(nodes);
+      const bends = relativeBends(chain, positions);
+      if (Object.keys(bends).length === 0) return;
+      if (!limited && !pendingEdge) {
+        setPendingEdge(bends); // first extreme — nothing persisted yet
+        return;
+      }
+      const ranges = pendingEdge
+        ? expandLimits(expandLimits({}, pendingEdge), bends) // union the two extremes
+        : expandLimits(chainLimits(chain), bends); // widen the live range
+      setPendingEdge(null);
+      await onPatch(setChainLimits(chains, chain.id, ranges));
+    } finally {
+      setCapturing(false);
+    }
+  };
+  const onClearLimits = () => {
+    setPendingEdge(null);
+    onPatch(clearLimits(chains, chain.id));
+  };
+  const captureLabel = limited ? "Capture (widen)" : pendingEdge ? "Capture pose 2" : "Capture pose 1";
+  const captureHint = limited
+    ? "Pose past the current range and capture to widen it."
+    : pendingEdge
+      ? "Now pose the other extreme and capture to lock the range between them."
+      : "Pose the chain to one extreme, then capture.";
+
   // Attachment: a single selected token in ANOTHER chain can become this chain's
   // parent node, so this chain rides along when that one moves.
   const parentName = chain.parentNodeId
@@ -352,6 +397,31 @@ function ChainCard({
           </label>
           <StiffnessControl value={chainDefault} onSelect={setDefaultStiffness}
             label="Default stiffness for this chain" />
+        </div>
+      )}
+
+      {advanced && canLimit && (
+        <div className="limits">
+          <div className="row">
+            <label title="Lock each joint to the range you pose it through — no angles, just capture two extremes">
+              Bend limits
+            </label>
+            <span className="chain-sub">
+              {limited ? "On" : pendingEdge ? "1 pose set" : "Off"}
+            </span>
+          </div>
+          <div className="limits-actions">
+            <button className="mini-btn" disabled={capturing} onClick={onCapture}>
+              {captureLabel}
+            </button>
+            {pendingEdge && (
+              <button className="mini-btn" onClick={() => setPendingEdge(null)}>Cancel</button>
+            )}
+            {limited && (
+              <button className="mini-btn danger" onClick={onClearLimits}>Clear</button>
+            )}
+          </div>
+          <p className="limits-hint">{captureHint}</p>
         </div>
       )}
 

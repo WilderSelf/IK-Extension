@@ -63,6 +63,15 @@ h1 {
   margin: 0 0 4px;
 }
 
+/* Muted build version tucked beside the title. */
+.version {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--ik-text-secondary);
+  vertical-align: middle;
+  opacity: 0.75;
+}
+
 .hint {
   color: var(--ik-text-secondary);
   font-size: 12px;

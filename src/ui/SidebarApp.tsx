@@ -43,6 +43,7 @@ import { getItemNames, getPositions, getRotations, getSelectedTokenIds, getSelec
 import { POSE_SHORTCUT } from "../obr/constants";
 import { useObrTheme } from "./theme";
 import { AnchorIcon, CaretRightIcon, CloseIcon, PencilIcon } from "./icons";
+import { version as APP_VERSION } from "../../package.json";
 
 /** localStorage keys for per-browser UI preferences. */
 const ADVANCED_KEY = "ik.advanced";
@@ -378,7 +379,7 @@ export function SidebarApp() {
           the chain list scrolls under them. */}
       <div className="app-top">
         <div className="app-header">
-          <h1>IK Chains</h1>
+          <h1>IK Chains <span className="version" title={`IK Chains version ${APP_VERSION}`}>v{APP_VERSION}</span></h1>
           <div className="top-toggles">
             <label className="adv-toggle"
               title="Draw every chain's skeleton (bones + joints, in its colour) on top of the tokens">

@@ -533,6 +533,21 @@ kbd {
   color: var(--ik-text-secondary);
 }
 
+/* Per-token bend-limit sub-row: label + capture/cancel/inherit + status. */
+.node-limit {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-left: 22px;
+  padding-top: 4px;
+}
+
+.node-limit .node-stiffness-label {
+  flex: none;
+  margin-right: auto;
+}
+
 .notice {
   font-size: 12px;
   line-height: 1.4;

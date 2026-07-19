@@ -1,6 +1,7 @@
 import { type KeyboardEvent, useEffect, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
 import {
+  type BendLimit,
   type Chain,
   type ChainMap,
   type Stiffness,
@@ -10,14 +11,13 @@ import {
 } from "../types";
 import {
   buildChain,
-  chainHasLimits,
-  chainLimits,
-  clearLimits,
+  chainCanLimit,
   deleteChain,
   effectiveStiffness,
-  expandLimits,
   findChainForToken,
   getChains,
+  hasDefaultLimit,
+  isLimitable,
   onChainsChange,
   orderedNodes,
   removeToken,
@@ -27,14 +27,16 @@ import {
   setChainColor,
   enableSegmentRig,
   disableSegmentRig,
-  setChainLimits,
+  setDefaultLimit,
+  setNodeLimit,
   setNodeStiffness,
   setParentNode,
+  unionRange,
   updateSettings,
 } from "../obr/chainStore";
 import { clearHighlights, highlightTokens } from "../obr/highlight";
 import { BONES_KEY, EDIT_PIVOTS_KEY, refreshBones } from "../obr/bones";
-import { relativeBends } from "../ik/pose";
+import { chainBends } from "../ik/pose";
 import { getItemNames, getPositions, getRotations, getSelectedTokenIds, getSelection } from "../obr/scene";
 import { POSE_SHORTCUT } from "../obr/constants";
 import { useObrTheme } from "./theme";
@@ -544,44 +546,72 @@ function ChainCard({
   const setNodeStiff = (id: string, s: Stiffness) => onPatch(setNodeStiffness(chains, id, s));
   const clearNodeStiff = (id: string) => onPatch(setNodeStiffness(chains, id, null));
 
-  // Bend limits, captured by posing. A chain needs at least one joint with a
-  // reference bone above it (the 3rd token onward) to have anything to limit.
-  const limited = chainHasLimits(chain);
-  const canLimit = nodes.length >= 3;
-  // The first extreme is held here until the second capture unions them into a
-  // real range; a lone pose is never persisted (it would freeze the joint).
-  const [pendingEdge, setPendingEdge] = useState<Record<string, number> | null>(null);
+  // Bend limits, captured by posing — two tiers: a chain-wide default (target "")
+  // applied to every limitable joint, and per-token overrides (target = token id)
+  // that win where set. A joint is limitable only if it has a reference bone/
+  // segment above it, so a chain needs at least one such joint to limit at all.
+  const isSeg = !!chain.settings.segmentRig;
+  const canLimit = chainCanLimit(chain);
+  // One capture-in-progress at a time: the first extreme is held in `pending`
+  // until a second capture unions them into a real interval — a lone pose is
+  // never persisted (min == max would freeze the joint). `pending.target` says
+  // which tier ("" = chain default, else a token id) is mid-capture.
+  const [pending, setPending] = useState<{ target: string; range: BendLimit } | null>(null);
   const [capturing, setCapturing] = useState(false);
-  const onCapture = async () => {
+
+  // The relative-bend range of the CURRENT pose for `target`: the span across all
+  // limitable joints for the chain default, or the single joint's bend for a
+  // token. Measured the same way the matching solve path clamps (segment-space
+  // for a limb rig), so a captured range and the solver agree.
+  const poseRange = async (target: string): Promise<BendLimit | null> => {
+    const [positions, rotations] = await Promise.all([
+      getPositions(nodes),
+      isSeg ? getRotations(nodes) : Promise.resolve<Record<string, number>>({}),
+    ]);
+    const bends = chainBends(chain, positions, rotations);
+    const vals = target === "" ? Object.values(bends) : target in bends ? [bends[target]] : [];
+    if (vals.length === 0) return null;
+    return { min: Math.min(...vals), max: Math.max(...vals) };
+  };
+
+  const persistLimit = (target: string, range: BendLimit) =>
+    onPatch(target === ""
+      ? setDefaultLimit(chains, chain.id, range)
+      : setNodeLimit(chains, chain.id, target, range));
+
+  const capture = async (target: string) => {
     if (capturing) return;
     setCapturing(true);
     try {
-      const positions = await getPositions(nodes);
-      const bends = relativeBends(chain, positions);
-      if (Object.keys(bends).length === 0) return;
-      if (!limited && !pendingEdge) {
-        setPendingEdge(bends); // first extreme — nothing persisted yet
-        return;
+      const range = await poseRange(target);
+      if (!range) return;
+      const locked = target === "" ? chain.settings.defaultLimit : chain.nodes[target]?.limit;
+      if (locked) {
+        await persistLimit(target, unionRange(locked, range)); // already set — widen it
+      } else if (pending && pending.target === target) {
+        setPending(null);
+        await persistLimit(target, unionRange(pending.range, range)); // second extreme — lock
+      } else {
+        setPending({ target, range }); // first extreme (supersedes any other pending)
       }
-      const ranges = pendingEdge
-        ? expandLimits(expandLimits({}, pendingEdge), bends) // union the two extremes
-        : expandLimits(chainLimits(chain), bends); // widen the live range
-      setPendingEdge(null);
-      await onPatch(setChainLimits(chains, chain.id, ranges));
     } finally {
       setCapturing(false);
     }
   };
-  const onClearLimits = () => {
-    setPendingEdge(null);
-    onPatch(clearLimits(chains, chain.id));
+
+  const clearLimit = (target: string) => {
+    setPending((p) => (p?.target === target ? null : p));
+    onPatch(target === ""
+      ? setDefaultLimit(chains, chain.id, null)
+      : setNodeLimit(chains, chain.id, target, null));
   };
-  const captureLabel = limited ? "Capture (widen)" : pendingEdge ? "Capture pose 2" : "Capture pose 1";
-  const captureHint = limited
-    ? "Pose past the current range and capture to widen it."
-    : pendingEdge
-      ? "Now pose the other extreme and capture to lock the range between them."
-      : "Pose the chain to one extreme, then capture.";
+
+  const limitOn = (target: string): boolean =>
+    (target === "" ? chain.settings.defaultLimit : chain.nodes[target]?.limit) != null;
+  const limitStatus = (target: string): string =>
+    limitOn(target) ? "On" : pending?.target === target ? "1 pose set" : "Off";
+  const captureLabel = (target: string): string =>
+    limitOn(target) ? "Capture (widen)" : pending?.target === target ? "Capture pose 2" : "Capture pose 1";
 
   // Attachment: a single selected token in ANOTHER chain can become this chain's
   // parent node, so this chain rides along when that one moves.
@@ -700,25 +730,29 @@ function ChainCard({
       {advanced && canLimit && (
         <div className="limits">
           <div className="row">
-            <label title="Lock each joint to the range you pose it through — no angles, just capture two extremes">
-              Bend limits
+            <label title="Chain-wide bend limit: pose the whole chain to its extremes and capture — every joint is held to that range unless you set one per token below.">
+              Bend limits (chain)
             </label>
-            <span className="chain-sub">
-              {limited ? "On" : pendingEdge ? "1 pose set" : "Off"}
-            </span>
+            <span className="chain-sub">{limitStatus("")}</span>
           </div>
           <div className="limits-actions">
-            <button className="mini-btn" disabled={capturing} onClick={onCapture}>
-              {captureLabel}
+            <button className="mini-btn" disabled={capturing} onClick={() => capture("")}>
+              {captureLabel("")}
             </button>
-            {pendingEdge && (
-              <button className="mini-btn" onClick={() => setPendingEdge(null)}>Cancel</button>
+            {pending?.target === "" && (
+              <button className="mini-btn" onClick={() => setPending(null)}>Cancel</button>
             )}
-            {limited && (
-              <button className="mini-btn danger" onClick={onClearLimits}>Clear</button>
+            {hasDefaultLimit(chain) && (
+              <button className="mini-btn danger" onClick={() => clearLimit("")}>Clear</button>
             )}
           </div>
-          <p className="limits-hint">{captureHint}</p>
+          <p className="limits-hint">
+            {limitOn("")
+              ? "Pose past the current range and capture to widen it. Set a tighter limit on one joint by expanding its token below."
+              : pending?.target === ""
+                ? "Now pose the other extreme and capture to lock the range between them."
+                : "Pose the chain to one extreme, then capture — twice, for both extremes."}
+          </p>
         </div>
       )}
 
@@ -759,8 +793,8 @@ function ChainCard({
                   <span className="node-icon root" title="Pinned root"><AnchorIcon size={13} /></span>
                 ) : hasDetail ? (
                   <button className="caret-btn" aria-expanded={open}
-                    aria-label={open ? "Hide stiffness" : "Show stiffness"}
-                    title={open ? "Hide this token's stiffness" : "Show this token's stiffness"}
+                    aria-label={open ? "Hide token settings" : "Show token settings"}
+                    title={open ? "Hide this token's stiffness and bend limit" : "Show this token's stiffness and bend limit"}
                     onClick={() => toggleToken(id)}>
                     <CaretRightIcon size={12} className={`caret${open ? " open" : ""}`} />
                   </button>
@@ -803,6 +837,27 @@ function ChainCard({
                   {overridden && (
                     <button className="mini-btn" onClick={() => clearNodeStiff(id)}
                       title={ease ? "Clear this override — follow the ease ramp" : "Clear this override — follow the chain default"}>
+                      Inherit
+                    </button>
+                  )}
+                </div>
+              )}
+              {hasDetail && open && isLimitable(chain, id) && (
+                <div className="node-limit">
+                  <span className="node-stiffness-label"
+                    title="Bend limit just for this joint — pose it to its extremes and capture. Overrides the chain-wide limit; Inherit drops back to it.">
+                    Bend limit
+                  </span>
+                  <button className="mini-btn" disabled={capturing} onClick={() => capture(id)}>
+                    {captureLabel(id)}
+                  </button>
+                  <span className="chain-sub">{limitStatus(id)}</span>
+                  {pending?.target === id && (
+                    <button className="mini-btn" onClick={() => setPending(null)}>Cancel</button>
+                  )}
+                  {chain.nodes[id]?.limit != null && (
+                    <button className="mini-btn danger" onClick={() => clearLimit(id)}
+                      title={hasDefaultLimit(chain) ? "Clear this override — follow the chain limit" : "Clear this override — free this joint"}>
                       Inherit
                     </button>
                   )}

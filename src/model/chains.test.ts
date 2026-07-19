@@ -9,12 +9,16 @@ import {
   descendantChainIds,
   findChainForToken,
   chainHasLimits,
-  chainLimits,
+  chainCanLimit,
+  hasDefaultLimit,
+  isLimitable,
+  limitableTokens,
+  effectiveLimit,
+  unionRange,
   clearLimits,
   disableSegmentRig,
   effectiveStiffness,
   enableSegmentRig,
-  expandLimits,
   isSegmentRig,
   orderedNodes,
   resetJointPivots,
@@ -23,7 +27,8 @@ import {
   removeToken,
   renameChain,
   renameNode,
-  setChainLimits,
+  setDefaultLimit,
+  setNodeLimit,
   setNodeStiffness,
   setParentNode,
   updateSettings,
@@ -304,7 +309,7 @@ describe("stiffness ease ramp", () => {
   });
 });
 
-describe("bend limits (capture / clear / expand)", () => {
+describe("bend limits (chain default + per-token override)", () => {
   const build = () =>
     buildChain({}, ["R", "A", "B", "C"],
       pos({ R: [0, 0], A: [10, 0], B: [20, 0], C: [30, 0] }), { R: 0, A: 0, B: 0, C: 0 })!;
@@ -312,48 +317,79 @@ describe("bend limits (capture / clear / expand)", () => {
   it("a fresh chain has no limits", () => {
     const [map, id] = build();
     expect(chainHasLimits(map[id])).toBe(false);
-    expect(chainLimits(map[id])).toEqual({});
+    expect(hasDefaultLimit(map[id])).toBe(false);
+    expect(effectiveLimit(map[id], "B")).toBeNull();
   });
 
-  it("sets and reads per-joint limits", () => {
+  it("only the 3rd token onward is limitable in a centre rig", () => {
     const [map, id] = build();
-    const next = setChainLimits(map, id, { B: { min: -0.2, max: 0.3 } });
-    expect(chainHasLimits(next[id])).toBe(true);
-    expect(chainLimits(next[id])).toEqual({ B: { min: -0.2, max: 0.3 } });
-    expect(next[id].nodes["C"].limit).toBeUndefined();
+    expect(limitableTokens(map[id])).toEqual(["B", "C"]);
+    expect(isLimitable(map[id], "R")).toBe(false);
+    expect(isLimitable(map[id], "A")).toBe(false);
+    expect(isLimitable(map[id], "B")).toBe(true);
+    expect(chainCanLimit(map[id])).toBe(true);
   });
 
-  it("replaces limits wholesale, freeing nodes not named", () => {
+  it("every non-root segment is limitable in a limb rig", () => {
     let [map, id] = build();
-    map = setChainLimits(map, id, { B: { min: -1, max: 1 }, C: { min: -1, max: 1 } });
-    map = setChainLimits(map, id, { C: { min: 0, max: 0.5 } });
-    expect(map[id].nodes["B"].limit).toBeUndefined();
-    expect(chainLimits(map[id])).toEqual({ C: { min: 0, max: 0.5 } });
+    map = enableSegmentRig(map, id,
+      pos({ R: [0, 0], A: [10, 0], B: [20, 0], C: [30, 0] }), { R: 0, A: 0, B: 0, C: 0 });
+    expect(limitableTokens(map[id])).toEqual(["A", "B", "C"]);
+    expect(isLimitable(map[id], "A")).toBe(true);
   });
 
-  it("clears every limit", () => {
+  it("the chain default applies to every joint until a node overrides it", () => {
     let [map, id] = build();
-    map = setChainLimits(map, id, { B: { min: -1, max: 1 } });
+    map = setDefaultLimit(map, id, { min: -0.5, max: 0.5 });
+    expect(hasDefaultLimit(map[id])).toBe(true);
+    expect(effectiveLimit(map[id], "B")).toEqual({ min: -0.5, max: 0.5 });
+    expect(effectiveLimit(map[id], "C")).toEqual({ min: -0.5, max: 0.5 });
+    map = setNodeLimit(map, id, "C", { min: 0, max: 0.2 });
+    expect(effectiveLimit(map[id], "C")).toEqual({ min: 0, max: 0.2 }); // override wins
+    expect(effectiveLimit(map[id], "B")).toEqual({ min: -0.5, max: 0.5 }); // still the default
+  });
+
+  it("a per-token override works with no chain default set", () => {
+    let [map, id] = build();
+    map = setNodeLimit(map, id, "B", { min: -0.1, max: 0.4 });
+    expect(chainHasLimits(map[id])).toBe(true);
+    expect(hasDefaultLimit(map[id])).toBe(false);
+    expect(effectiveLimit(map[id], "B")).toEqual({ min: -0.1, max: 0.4 });
+    expect(effectiveLimit(map[id], "C")).toBeNull(); // no default → free
+  });
+
+  it("clearing the default or an override falls back correctly", () => {
+    let [map, id] = build();
+    map = setDefaultLimit(map, id, { min: -1, max: 1 });
+    map = setNodeLimit(map, id, "B", { min: 0, max: 0.3 });
+    map = setNodeLimit(map, id, "B", null); // inherit
+    expect(effectiveLimit(map[id], "B")).toEqual({ min: -1, max: 1 });
+    map = setDefaultLimit(map, id, null);
+    expect(effectiveLimit(map[id], "B")).toBeNull();
+    expect(chainHasLimits(map[id])).toBe(false);
+  });
+
+  it("clearLimits drops the default and every override", () => {
+    let [map, id] = build();
+    map = setDefaultLimit(map, id, { min: -1, max: 1 });
+    map = setNodeLimit(map, id, "C", { min: 0, max: 0.5 });
     map = clearLimits(map, id);
     expect(chainHasLimits(map[id])).toBe(false);
   });
 
-  it("expandLimits unions pose bends into widening ranges", () => {
-    const one = expandLimits({}, { B: 0.1, C: -0.2 });
-    expect(one).toEqual({ B: { min: 0.1, max: 0.1 }, C: { min: -0.2, max: -0.2 } });
-    const two = expandLimits(one, { B: -0.3, C: 0.4 });
-    expect(two).toEqual({ B: { min: -0.3, max: 0.1 }, C: { min: -0.2, max: 0.4 } });
+  it("unionRange seeds from one edge then widens to span both", () => {
+    const one = unionRange(null, { min: 0.1, max: 0.1 });
+    expect(one).toEqual({ min: 0.1, max: 0.1 });
+    expect(unionRange(one, { min: -0.3, max: -0.3 })).toEqual({ min: -0.3, max: 0.1 });
   });
 
   it("does not mutate its inputs", () => {
     const [map, id] = build();
     const snapshot = JSON.stringify(map);
-    setChainLimits(map, id, { B: { min: 0, max: 1 } });
+    setDefaultLimit(map, id, { min: 0, max: 1 });
+    setNodeLimit(map, id, "B", { min: 0, max: 1 });
     clearLimits(map, id);
     expect(JSON.stringify(map)).toEqual(snapshot);
-    const existing = { B: { min: 0, max: 1 } };
-    expandLimits(existing, { B: 2 });
-    expect(existing).toEqual({ B: { min: 0, max: 1 } });
   });
 });
 

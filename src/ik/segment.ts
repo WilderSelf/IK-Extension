@@ -153,7 +153,15 @@ export function solveSegmentJoints(
 
   // Effector = the grabbed token's DISTAL joint. Solve the root→effector sub-path.
   const effJoint = Math.min(grabbedIndex + 1, n);
-  const solvedSub = solveChain(joints.slice(0, effJoint + 1), lengths.slice(0, effJoint), target, opts);
+  // Weightings arrive aligned to the FULL joints (limits, one per point) / segments
+  // (stiffness, one per bone); slice them to the sub-path so their indices still
+  // line up with the shortened point/bone arrays passed to the solver.
+  const subOpts: SolveOptions | undefined = opts && {
+    ...opts,
+    stiffness: opts.stiffness?.slice(0, effJoint),
+    limits: opts.limits?.slice(0, effJoint + 1),
+  };
+  const solvedSub = solveChain(joints.slice(0, effJoint + 1), lengths.slice(0, effJoint), target, subOpts);
   const outJoints = joints.slice();
   for (let i = 0; i <= effJoint; i++) outJoints[i] = solvedSub[i];
 

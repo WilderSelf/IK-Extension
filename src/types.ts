@@ -125,6 +125,13 @@ export interface ChainSettings {
    */
   ease?: boolean;
   /**
+   * Chain-wide bend limit, captured by posing: ONE relative-bend interval applied
+   * uniformly to every limitable joint that lacks its own `ChainNode.limit`
+   * override. The per-joint analogue of `defaultStiffness` — a node's own `limit`
+   * always wins. Undefined = joints are free unless individually limited.
+   */
+  defaultLimit?: BendLimit;
+  /**
    * Limb mode: treat the tokens as rigid SEGMENTS spanning joints, so each pivots
    * at its joint (the shoulder/elbow/wrist) instead of its own centre. Off by
    * default — the centre-based rig is correct for ropes/tails/tentacles (a blob

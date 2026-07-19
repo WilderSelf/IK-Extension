@@ -132,6 +132,24 @@ describe("solveSegmentJoints", () => {
     expect(solveSegmentJoints(arm(), flat(3), seg(), 0, v(99, 99)))
       .toEqual(reconstructJoints(arm(), flat(3), seg()));
   });
+
+  it("honours a joint-space bend limit while reaching (limb mode)", () => {
+    // limits are aligned to the N+1 JOINTS; point i (i>=2) clamps segment (i-1)
+    // vs segment (i-2). A tight ±0.15 rad cap on both interior joints.
+    const cap = { min: -0.15, max: 0.15 };
+    const joints = solveSegmentJoints(arm(), flat(3), seg(), 2, v(0, 22), {
+      limits: [null, null, cap, cap],
+    });
+    // Every inter-segment turn stays within the cap…
+    for (let i = 2; i < joints.length; i++) {
+      const inA = Math.atan2(joints[i - 1].y - joints[i - 2].y, joints[i - 1].x - joints[i - 2].x);
+      const outA = Math.atan2(joints[i].y - joints[i - 1].y, joints[i].x - joints[i - 1].x);
+      expect(Math.abs(Math.atan2(Math.sin(outA - inA), Math.cos(outA - inA)))).toBeLessThanOrEqual(0.15 + 1e-3);
+    }
+    // …and segment lengths are still preserved under the constraint.
+    const s = seg();
+    for (let i = 0; i + 1 < joints.length; i++) expect(dist(joints[i], joints[i + 1])).toBeCloseTo(s[i].len, 4);
+  });
 });
 
 describe("jointAngles", () => {

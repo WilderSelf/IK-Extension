@@ -63,6 +63,16 @@ preserved here and baked into the current code. Don't regress them.
 - **One tool, one mode.** Posing needs a canvas tool, but there is no secondary
   mode-button row — building and settings are in the popover, not extra toolbar
   buttons.
+- **Exactly one keyboard shortcut, via the SDK — not a raw listener.** The tool
+  has a single tool-activation `shortcut` (`POSE_SHORTCUT`, `src/obr/constants.ts`)
+  so you can jump to posing without hunting the toolbar. It uses Owlbear's
+  sanctioned `shortcut` field (which OBR arbitrates), **not** a global `keydown`
+  listener that could hijack the room's keys. The letter is chosen clear of
+  Owlbear's built-in tool keys (W/F/D/M/Q/N) and its fog/draw sub-mode keys; a bare
+  letter is never a browser shortcut (those need Ctrl/Cmd/Alt). Live drag-posing
+  can't be attached to the built-in Move tool — the SDK routes drag events only to
+  a custom tool's active mode — so the hotkey is the friction-reducer, not a
+  Move-tool hook.
 
 ## Deployment gotcha — base path on every asset URL
 

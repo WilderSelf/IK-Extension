@@ -12,6 +12,7 @@ import {
   updateSettings,
 } from "../obr/chainStore";
 import { getItemNames, getPositions, getRotations, getSelectedTokenIds, getSelection } from "../obr/scene";
+import { POSE_SHORTCUT } from "../obr/constants";
 import { useObrTheme } from "./theme";
 import { AnchorIcon, CaretRightIcon, CloseIcon } from "./icons";
 
@@ -102,8 +103,9 @@ export function SidebarApp() {
       <p className="hint">
         Rig tokens into a chain and pose them like a limb. Select tokens
         {" "}<strong>root first, then outward</strong>, then build the chain. Pick the
-        {" "}<strong>IK Chains</strong> tool and drag any token — the chain flexes with the
-        root pinned. Drag the root to move the whole thing.
+        {" "}<strong>IK Chains</strong> tool (or press <kbd>{POSE_SHORTCUT}</kbd>) and drag
+        any token — the chain flexes with the root pinned. Drag the root to move the
+        whole thing.
       </p>
 
       <button className="primary" onClick={onNewChain} disabled={!ready}>

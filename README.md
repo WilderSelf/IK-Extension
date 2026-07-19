@@ -17,8 +17,9 @@ version is preserved at the git tag `v0.6-full`.
 - **Build a chain from a selection.** Select tokens **root first, then outward**,
   and click **New chain from selection** in the sidebar. Bone lengths and each
   token's orientation are captured at build time.
-- **Pose it.** Select the **IK Chains** tool and drag any token: the path from the
-  root re-solves with [FABRIK](https://en.wikipedia.org/wiki/FABRIK) (root pinned,
+- **Pose it.** Select the **IK Chains** tool (or press its hotkey **`K`**) and drag
+  any token: the path from the root re-solves with
+  [FABRIK](https://en.wikipedia.org/wiki/FABRIK) (root pinned,
   bone lengths preserved) and the tip trails rigidly. Drag the **root** to move the
   whole chain.
 - **Auto-rotate.** Tokens rotate to face along their bone as the chain flexes,
@@ -35,8 +36,8 @@ version is preserved at the git tag `v0.6-full`.
 2. Open the extension's **sidebar** (its toolbar action icon).
 3. On the map, select the tokens for the chain — **root first, then each token
    outward, in order** — then click **New chain from selection**.
-4. Select the **IK Chains** tool in the toolbar and **drag a token** to pose the
-   chain. Drag the root to translate the whole thing.
+4. Select the **IK Chains** tool in the toolbar — or press its hotkey **`K`** — and
+   **drag a token** to pose the chain. Drag the root to translate the whole thing.
 5. Right-click a token → **Remove from IK chain** to trim it, or use a chain card's
    **Delete** button in the sidebar to remove the whole chain.
 
@@ -147,6 +148,8 @@ helper. If the repo is renamed or moved to a root domain, update `base` in
   solves. Keeps posing predictable.
 - **Rigid bones.** Bone lengths are captured at build and preserved while posing.
 - **GM-only, one canvas tool.** Posing needs a tool; everything else stays off the
-  toolbar (see above).
+  toolbar (see above). The tool has a single activation hotkey (`K`) so you don't
+  have to hunt the toolbar — Owlbear only routes drag events to a custom tool, so
+  the built-in Move tool can't run the solver during a drag.
 - **Pose undo** is Owlbear's own token undo; the extension writes token positions
   once, on release, through the interaction API.

@@ -176,13 +176,23 @@ export interface Chain {
   nodes: Record<string, ChainNode>;
   settings: ChainSettings;
   /**
-   * Optional link: the token id of a node in ANOTHER chain that this chain
-   * "follows". When that node moves (its owning chain is posed or translated),
-   * this whole chain is carried rigidly by the node's transform, so a sub-rig
-   * (e.g. a crab's pincher) rides along with its parent. The link is directional
-   * — posing this chain never moves the parent. Undefined = independent.
+   * Optional link: the token id this chain "follows" — a node in ANOTHER chain,
+   * or a BARE token (a body sprite that isn't a chain). When that token moves,
+   * this whole chain is carried rigidly by its transform, so a sub-rig (an arm on
+   * a body, a crab's pincher on an arm) rides along. A chained parent is carried
+   * by `poseRig` when its chain is posed; a bare parent is carried reactively when
+   * it's dragged (see `ik/follow.ts`). Directional — posing this chain never moves
+   * the parent. Undefined = independent.
    */
   parentNodeId?: string;
+  /**
+   * Optional ANCHOR bend limit: how far this chain's ROOT may swing relative to
+   * its parent token's orientation (the shoulder, for an arm attached to a body).
+   * Captured by posing. Meaningful only when `parentNodeId` is set AND differs
+   * from `rootId` — a shared-pivot anchor-build limits that joint through the
+   * normal per-joint limits instead. Undefined = the root swings freely.
+   */
+  anchorLimit?: BendLimit;
 }
 
 /** Map of chainId -> Chain, as stored in scene metadata. */

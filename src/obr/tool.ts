@@ -199,6 +199,19 @@ async function onPoseDragStart(_ctx: ToolContext, event: ToolEvent): Promise<voi
       baseRotations[it.id] = it.rotation;
     }
 
+    // The posed chain's parent token (a body, or an ancestor chain's node) is NOT
+    // part of the interaction, but its orientation is the reference for an anchor
+    // limit. Fetch its transform once — it doesn't move during this drag — so
+    // poseRig can read it. Skipped if the parent is its own root (a shared anchor).
+    const parentId = chain.parentNodeId;
+    if (parentId && parentId !== chain.rootId && !(parentId in baseRotations)) {
+      const [pItem] = await OBR.scene.items.getItems([parentId]);
+      if (pItem) {
+        basePositions[pItem.id] = { x: pItem.position.x, y: pItem.position.y };
+        baseRotations[pItem.id] = pItem.rotation;
+      }
+    }
+
     const [update, stop] = (await OBR.interaction.startItemInteraction(items)) as [
       InteractionUpdate,
       InteractionStop,

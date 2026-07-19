@@ -23,6 +23,15 @@ export interface SolveOptions {
    * all-null ⇒ the plain solver runs unchanged.
    */
   limits?: (BendLimit | null | undefined)[];
+  /**
+   * Optional ANCHOR limit on the ROOT's outgoing bone (point 0 → 1), clamped
+   * relative to `anchorRef` (a world reference angle in radians — a parent
+   * token's orientation). This is the one joint a plain bend limit can't reach:
+   * the root has no bone above it *inside* the chain, so the parent supplies the
+   * reference. Applied only at `i === 1`, and only when both are present.
+   */
+  anchorRef?: number;
+  anchorLimit?: BendLimit | null;
 }
 
 /**
@@ -54,9 +63,12 @@ export function solveChain(
   const limits = opts.limits;
   const hasStiffness = !!stiffness?.some((s) => s !== 0);
   const hasLimits = !!limits?.some(Boolean);
-  // Either weighting takes the angle-based forward pass; a plain solve stays on
-  // the original fast path and is byte-identical to the unweighted solver.
-  const weighted = hasStiffness || hasLimits;
+  const anchorRef = opts.anchorRef;
+  const anchorLimit = opts.anchorLimit;
+  const hasAnchor = anchorLimit != null && anchorRef !== undefined;
+  // Any weighting takes the angle-based forward pass; a plain solve stays on the
+  // original fast path and is byte-identical to the unweighted solver.
+  const weighted = hasStiffness || hasLimits || hasAnchor;
 
   const total = restLengths.reduce((s, l) => s + l, 0);
   const p = points.map((pt) => ({ ...pt }));
@@ -110,6 +122,12 @@ export function solveChain(
           const lo = Math.min(limit.min, limit.max);
           const hi = Math.max(limit.min, limit.max);
           a = inAngle + Math.min(hi, Math.max(lo, rel));
+        } else if (i === 1 && hasAnchor) {
+          // The root's own bone, clamped against the external reference angle.
+          const rel = wrapAngle(a - anchorRef!);
+          const lo = Math.min(anchorLimit!.min, anchorLimit!.max);
+          const hi = Math.max(anchorLimit!.min, anchorLimit!.max);
+          a = anchorRef! + Math.min(hi, Math.max(lo, rel));
         }
         p[i] = add(p[i - 1], scale({ x: Math.cos(a), y: Math.sin(a) }, restLengths[i - 1]));
       }

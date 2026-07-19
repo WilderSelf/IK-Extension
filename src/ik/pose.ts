@@ -65,6 +65,39 @@ export function chainBends(
 }
 
 /**
+ * The signed ANCHOR bend: the chain ROOT's outgoing bone direction minus its
+ * parent token's orientation (radians, wrapped). This is the "shoulder" angle —
+ * how far the root swings relative to the body it's attached to — captured for
+ * the anchor limit and clamped by the solver at point 1. `parentRotDeg` is the
+ * parent token's OBR rotation in DEGREES. Measured the SAME way the solver's
+ * anchor clamp measures (root bone angle vs `anchorRef`), so a captured range and
+ * the clamp agree. Returns null if the geometry (or seg data) is missing.
+ */
+export function anchorBend(
+  chain: Chain,
+  positions: Record<string, Vec2>,
+  rotations: Record<string, number>,
+  parentRotDeg: number,
+): number | null {
+  const order = orderedNodes(chain);
+  if (order.length < 2) return null;
+  let rootDir: number;
+  if (isSegmentRig(chain)) {
+    const centres = order.map((id) => positions[id]);
+    const seg = order.map((id) => chain.nodes[id]?.seg);
+    if (centres.some((c) => !c) || seg.some((s) => !s)) return null;
+    const rot = order.map((id) => rotations[id] ?? 0);
+    rootDir = jointAngles(reconstructJoints(centres as Vec2[], rot, seg as NonNullable<typeof seg[number]>[]))[0];
+  } else {
+    const root = positions[order[0]];
+    const child = positions[order[1]];
+    if (!root || !child) return null;
+    rootDir = angle(root, child);
+  }
+  return wrapAngle(rootDir - (parentRotDeg * Math.PI) / 180);
+}
+
+/**
  * Is `tokenId` (the root of chain `chainId`) a shared pivot — i.e. also a
  * NON-root segment of some other chain? Such a token is owned, orientation-wise,
  * by that other (parent) chain, so its own chain must not re-rotate it toward its
@@ -196,6 +229,17 @@ export function poseRig(
   // wander. Filled for the posed chain here and for carried descendants below.
   const segAngle: Record<string, number> = {};
   const posed = chains[posedChainId];
+  // Anchor limit: clamp the posed chain's ROOT swing relative to its parent
+  // token's orientation, when it's attached to an EXTERNAL token (not its own
+  // root) whose base rotation is known. The parent doesn't move during this drag,
+  // so its base rotation is the reference angle for the whole solve.
+  const parentId = posed?.parentNodeId;
+  const anchorRef =
+    posed && parentId && parentId !== posed.rootId && baseRot[parentId] !== undefined
+      ? (baseRot[parentId] * Math.PI) / 180
+      : undefined;
+  const anchorOpts: SolveOptions =
+    posed?.anchorLimit && anchorRef !== undefined ? { anchorRef, anchorLimit: posed.anchorLimit } : {};
   if (posed) {
     if (grab.mode === "solve" && isSegmentRig(posed)) {
       // Limb mode: solve the JOINTS (root joint pinned) and re-seat each token on
@@ -213,7 +257,7 @@ export function poseRig(
           i >= 2 ? effectiveLimit(posed, order[i - 1]) : null,
         );
         const joints = solveSegmentJoints(
-          centres as Vec2[], rot, seg, order.indexOf(grab.grabbedId), grab.target, { ...opts, limits },
+          centres as Vec2[], rot, seg, order.indexOf(grab.grabbedId), grab.target, { ...opts, ...anchorOpts, limits },
         );
         seatTokens(joints, seg).forEach((c, i) => {
           out[order[i]] = c;
@@ -226,7 +270,7 @@ export function poseRig(
       const solved =
         grab.mode === "translate"
           ? rigidTranslate(posed, base, grab.delta)
-          : solvePose(posed, base, grab.grabbedId, grab.target, opts);
+          : solvePose(posed, base, grab.grabbedId, grab.target, { ...opts, ...anchorOpts });
       Object.assign(out, solved.positions);
     }
   }

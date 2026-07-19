@@ -106,7 +106,13 @@ function applyPose(state: DragState, pose: Pose, items: Item[]): void {
       chain?.settings.autoRotate &&
       pose.rotations[item.id] !== undefined
     ) {
-      const off = chain.nodes[item.id]?.boneOffsetDeg ?? DEFAULT_ROTATION_OFFSET_DEG;
+      const node = chain.nodes[item.id];
+      // A segment rig measures the offset against the SEGMENT direction, so use
+      // its captured `seg.offsetDeg`; the default rig uses the incoming-bone offset.
+      const off =
+        chain.settings.segmentRig && node?.seg
+          ? node.seg.offsetDeg
+          : node?.boneOffsetDeg ?? DEFAULT_ROTATION_OFFSET_DEG;
       item.rotation = radToObrDeg(pose.rotations[item.id], off);
     }
     // Note: we read/write position + rotation only, never `scale`, so a token's

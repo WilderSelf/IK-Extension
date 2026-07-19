@@ -95,12 +95,14 @@ function applyPose(state: DragState, pose: Pose, items: Item[]): void {
     if (np && Number.isFinite(np.x) && Number.isFinite(np.y)) {
       item.position = { x: np.x, y: np.y };
     }
-    // Auto-rotate is per the token's OWN chain: honor that chain's setting, skip
-    // its root, and use the token's captured offset.
+    // Auto-rotate is per the token's OWN chain: honor that chain's setting and
+    // use the token's captured offset. Whether a token rotates (including a
+    // chain's root, which turns to face its child unless it's a shared pivot) is
+    // decided in poseRig — it only emits a rotation for tokens that should turn,
+    // so a missing entry here means "leave this token's orientation alone".
     const chain = state.involved[state.tokenChainId[item.id]];
     if (
       chain?.settings.autoRotate &&
-      item.id !== chain.rootId &&
       pose.rotations[item.id] !== undefined
     ) {
       const off = chain.nodes[item.id]?.boneOffsetDeg ?? DEFAULT_ROTATION_OFFSET_DEG;

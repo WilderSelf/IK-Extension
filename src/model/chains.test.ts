@@ -50,6 +50,16 @@ describe("buildChain", () => {
     expect(chain.nodes.B.restLength).toBeCloseTo(10, 6);
     // Horizontal bone (angle 0) with token rotation 0 → boneOffsetDeg 0.
     expect(chain.nodes.A.boneOffsetDeg).toBeCloseTo(0, 6);
+    // The ROOT gets an offset too, against its outgoing bone (R->A, angle 0),
+    // so a posed limb's root token rotates to a correct orientation.
+    expect(chain.nodes.R.boneOffsetDeg).toBeCloseTo(0, 6);
+  });
+
+  it("captures the root offset against its outgoing bone", () => {
+    // R -> A points straight down (+y). Root token authored at 90° → offset 0.
+    const built = buildChain({}, ["R", "A"], pos({ R: [0, 0], A: [0, 10] }), { R: 90, A: 90 });
+    const chain = Object.values(built![0])[0];
+    expect(chain.nodes.R.boneOffsetDeg).toBeCloseTo(0, 6);
   });
 
   it("rejects fewer than two tokens or duplicate ids", () => {

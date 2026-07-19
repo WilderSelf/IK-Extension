@@ -301,6 +301,7 @@ kbd {
 }
 
 .row label {
+  flex: none;
   font-size: 13px;
 }
 
@@ -464,18 +465,6 @@ kbd {
 /* 5-point Loose…Stiff stiffness slider. */
 .stiff-block {
   padding: 2px 0;
-}
-
-.stiff-field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 3px 0;
-}
-
-.stiff-field > label {
-  flex: none;
-  font-size: 13px;
 }
 
 .stiff {

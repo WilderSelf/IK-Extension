@@ -170,6 +170,12 @@ export function SidebarApp() {
     };
   }, [chains]);
 
+  // Clear the on-canvas highlight and forget which chain was lit.
+  const dropHighlight = () => {
+    clearHighlights().catch(() => {});
+    setHighlightedChainId(null);
+  };
+
   // Highlight lifecycle: clear any stale highlight shapes on open and on close so
   // they never outlive the popover.
   useEffect(() => {
@@ -182,23 +188,29 @@ export function SidebarApp() {
 
   // If the highlighted chain is deleted, drop its highlight.
   useEffect(() => {
-    if (highlightedChainId && !chains[highlightedChainId]) {
-      clearHighlights().catch(() => {});
-      setHighlightedChainId(null);
-    }
+    if (highlightedChainId && !chains[highlightedChainId]) dropHighlight();
   }, [chains, highlightedChainId]);
 
   // Toggle the on-canvas highlight for a chain (and select its tokens so they're
   // ready to pose). Clicking the already-highlighted chain clears it.
   const onSelectChain = (chainId: string, ids: string[], color: string) => {
     if (highlightedChainId === chainId) {
-      clearHighlights().catch(() => {});
-      setHighlightedChainId(null);
+      dropHighlight();
       return;
     }
     highlightTokens(ids, color).catch(() => {});
     setHighlightedChainId(chainId);
     OBR.player.select(ids, true).catch(() => {});
+  };
+
+  // Recolour a chain; if it's the one currently highlighted, refresh the aura
+  // live so the canvas keeps up with the swatch.
+  const onSetChainColor = (chainId: string, color: string) => {
+    patch(setChainColor(chains, chainId, color));
+    if (highlightedChainId === chainId) {
+      const chain = chains[chainId];
+      if (chain) highlightTokens(orderedNodes(chain), color).catch(() => {});
+    }
   };
 
   async function patch(next: ChainMap) {
@@ -323,6 +335,7 @@ export function SidebarApp() {
             onDetach={onDetach}
             onSelectNode={(id) => OBR.player.select([id], true).catch(() => {})}
             onSelectChain={onSelectChain}
+            onSetColor={onSetChainColor}
             highlighted={highlightedChainId === chain.id}
           />
         ))}
@@ -342,6 +355,7 @@ function ChainCard({
   onDetach,
   onSelectNode,
   onSelectChain,
+  onSetColor,
   highlighted,
 }: {
   chain: Chain;
@@ -354,6 +368,7 @@ function ChainCard({
   onDetach: (chainId: string) => void;
   onSelectNode: (id: string) => void;
   onSelectChain: (chainId: string, ids: string[], color: string) => void;
+  onSetColor: (chainId: string, color: string) => void;
   highlighted: boolean;
 }) {
   const nodes = orderedNodes(chain);
@@ -365,7 +380,7 @@ function ChainCard({
   const chainColor = chain.color ?? "#8b8f9a";
   const [showColors, setShowColors] = useState(false);
   const pickColor = (c: string) => {
-    onPatch(setChainColor(chains, chain.id, c));
+    onSetColor(chain.id, c);
     setShowColors(false);
   };
 
@@ -512,7 +527,7 @@ function ChainCard({
           <label className="swatch custom" title="Custom colour">
             <input type="color" value={chainColor}
               aria-label="Custom chain colour"
-              onChange={(e) => onPatch(setChainColor(chains, chain.id, e.target.value))} />
+              onChange={(e) => onSetColor(chain.id, e.target.value)} />
           </label>
         </div>
       )}
@@ -540,7 +555,7 @@ function ChainCard({
               onChange={(e) => setEase(e.target.checked)} />
           </div>
           {!ease && (
-            <div className="stiff-field">
+            <div className="row">
               <label title="Baseline resistance for every token you haven't set individually below">
                 Stiffness (default)
               </label>

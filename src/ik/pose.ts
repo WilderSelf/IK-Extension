@@ -25,6 +25,20 @@ export function relativeBends(
   return out;
 }
 
+/**
+ * Is `tokenId` (the root of chain `chainId`) a shared pivot — i.e. also a
+ * NON-root segment of some other chain? Such a token is owned, orientation-wise,
+ * by that other (parent) chain, so its own chain must not re-rotate it toward its
+ * child. A plain standalone root is not shared and does rotate to face its child.
+ */
+function isSharedPivot(chains: ChainMap, chainId: string, tokenId: string): boolean {
+  for (const [cid, c] of Object.entries(chains)) {
+    if (cid === chainId) continue;
+    if (tokenId in c.nodes && c.rootId !== tokenId) return true;
+  }
+  return false;
+}
+
 /** How a chain is being dragged: its root (rigid translate) or a node (solve). */
 export type Grab =
   | { mode: "translate"; delta: Vec2 }
@@ -191,11 +205,16 @@ export function poseRig(
     const chain = chains[id];
     if (!chain) continue;
     const angles = boneAngles(chain, out);
-    // Skip each chain's own root: a node that is a segment of its parent AND the
-    // shared root of a child must keep the parent's (segment) angle, not the
-    // child's root-facing one. Roots aren't auto-rotated anyway.
     for (const [tid, a] of Object.entries(angles)) {
-      if (tid !== chain.rootId) rotations[tid] = a;
+      // A chain's own root normally DOES rotate — to face its child — so a limb's
+      // upper segment swings about its pinned joint (shoulder) as the tip is
+      // posed. Skip it ONLY when the token is a SHARED PIVOT: a non-root segment
+      // of some other chain (an anchor-built sub-chain rooted on its parent). The
+      // parent chain owns that token's orientation, so honouring the child-root's
+      // child-facing angle would fight it. `[posed, ...descendants]` is ordered
+      // parent-first, so a parent already wrote the shared node's segment angle.
+      if (tid === chain.rootId && isSharedPivot(chains, id, tid)) continue;
+      rotations[tid] = a;
     }
   }
   return { positions: out, rotations };

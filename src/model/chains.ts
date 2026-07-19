@@ -129,6 +129,18 @@ export function buildChain(
     map = addNode(map, id, tokenId, parent, restLength, boneOffsetDeg);
     parent = tokenId;
   }
+  // Capture the ROOT's rotation offset too — against its OUTGOING bone
+  // (root -> first child), the convention `boneAngles` uses for a root. A root
+  // that's a visible limb segment (e.g. an upper arm) rotates about its pinned
+  // joint when posed; without a captured offset it would fall back to the
+  // default and snap to a wrong orientation the moment it turns.
+  const firstChild = rest[0];
+  const ra = positions[root];
+  const rb = positions[firstChild];
+  if (ra && rb && rotations[root] !== undefined) {
+    const rootBoneDeg = (Math.atan2(rb.y - ra.y, rb.x - ra.x) * 180) / Math.PI;
+    map[id].nodes[root].boneOffsetDeg = rotations[root] - rootBoneDeg;
+  }
   map[id].color = pickChainColor(chains); // distinct highlight colour per chain
   return [map, id];
 }

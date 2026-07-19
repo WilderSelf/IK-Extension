@@ -160,6 +160,20 @@ describe("poseRig (linked chains)", () => {
     expect(out.A2).toEqual({ x: 20, y: 0 });
   });
 
+  it("rotates a standalone chain's own root to face its child when posed", () => {
+    // A standalone chain (no shared pivot): the root token is a real segment
+    // (e.g. an upper arm) and must swing about its pinned joint as the tip moves.
+    const chains = buildChain({}, ["S0", "S1", "S2"],
+      pos({ S0: [0, 0], S1: [10, 0], S2: [20, 0] }), { S0: 0, S1: 0, S2: 0 })![0];
+    const sId = Object.values(chains).find((c) => c.rootId === "S0")!.id;
+    const base = pos({ S0: [0, 0], S1: [10, 0], S2: [20, 0] });
+    const { positions: out, rotations } = poseRig(chains, sId, base, { mode: "solve", grabbedId: "S2", target: { x: 0, y: 20 } });
+    expect(out.S0).toEqual({ x: 0, y: 0 }); // root still pinned in place
+    // The root now carries a rotation, matching the new S0->S1 bone direction.
+    expect(rotations.S0).not.toBeUndefined();
+    expect(rotations.S0).toBeCloseTo(boneAngles(chains[sId], out).S0, 6);
+  });
+
   it("articulates a sub-chain rooted at a shared anchor, parent left put", () => {
     // A: A0-A1-A2. Sub-chain P rooted at the shared pivot A2: A2-P1.
     let chains: ChainMap = buildChain({}, ["A0", "A1", "A2"],
@@ -179,6 +193,9 @@ describe("poseRig (linked chains)", () => {
     expect(dist(p.positions.A2, p.positions.P1)).toBeCloseTo(10, 5);
     expect(p.positions.P1).not.toEqual(base.P1);
     expect(p.rotations.P1).not.toBeUndefined();
+    // A2 is a SHARED PIVOT (a segment of arm A + root of sub-chain P): posing the
+    // sub-chain must NOT re-rotate it — arm A owns its orientation.
+    expect(p.rotations.A2).toBeUndefined();
 
     // Pose the arm: the sub-chain (pivot + P1) rides along.
     const q = poseRig(chains, aId, base, { mode: "translate", delta: { x: 3, y: 4 } });

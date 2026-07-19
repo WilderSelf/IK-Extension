@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import type { Chain, ChainMap, Vec2 } from "../types";
 import { defaultSettings } from "../types";
-import { buildChain, enableSegmentRig, orderedNodes, setParentNode } from "../model/chains";
-import { boneAngles, poseRig, relativeBends, rigidTranslate, solvePose } from "./pose";
-import { dist } from "./vec";
+import { buildChain, enableSegmentRig, orderedNodes, setDefaultLimit, setParentNode } from "../model/chains";
+import { boneAngles, chainBends, poseRig, relativeBends, rigidTranslate, solvePose } from "./pose";
+import { dist, wrapAngle } from "./vec";
 
 // Signed bend at the joint x-y-z: angle(y→z) minus angle(x→y), wrapped.
 const relBend = (p: Record<string, Vec2>, x: string, y: string, z: string) => {
@@ -111,6 +111,57 @@ describe("relativeBends", () => {
     // Bend 90° at B: R-A along +x, then A-B-C turning up.
     const posed = { R: { x: 0, y: 0 }, A: { x: 10, y: 0 }, B: { x: 20, y: 0 }, C: { x: 20, y: 10 } };
     expect(relativeBends(chain, posed)["C"]).toBeCloseTo(Math.PI / 2, 5);
+  });
+});
+
+describe("chainBends (segment rig)", () => {
+  it("covers every non-root segment and reads ~0 at rest", () => {
+    let chains = buildChain({}, ["S0", "S1", "S2"],
+      pos({ S0: [0, 0], S1: [10, 0], S2: [20, 0] }), { S0: 0, S1: 0, S2: 0 })![0];
+    const sId = Object.values(chains).find((c) => c.rootId === "S0")!.id;
+    chains = enableSegmentRig(chains, sId, pos({ S0: [0, 0], S1: [10, 0], S2: [20, 0] }), { S0: 0, S1: 0, S2: 0 });
+    // The FIRST movable segment (S1) is included here — the centre rig can't
+    // measure it, so a limb rig gains that joint (the elbow).
+    const bends = chainBends(chains[sId], pos({ S0: [0, 0], S1: [10, 0], S2: [20, 0] }), { S0: 0, S1: 0, S2: 0 });
+    expect(Object.keys(bends).sort()).toEqual(["S1", "S2"]);
+    expect(bends["S1"]).toBeCloseTo(0, 6);
+    expect(bends["S2"]).toBeCloseTo(0, 6);
+  });
+});
+
+describe("poseRig bend limits", () => {
+  // Straight 3-segment limb rig; degree-space token rotations (all 0 at rest).
+  function limbRig(withLimit: boolean) {
+    let chains = buildChain({}, ["S0", "S1", "S2"],
+      pos({ S0: [0, 0], S1: [10, 0], S2: [20, 0] }), { S0: 0, S1: 0, S2: 0 })![0];
+    const sId = Object.values(chains).find((c) => c.rootId === "S0")!.id;
+    chains = enableSegmentRig(chains, sId, pos({ S0: [0, 0], S1: [10, 0], S2: [20, 0] }), { S0: 0, S1: 0, S2: 0 });
+    if (withLimit) chains = setDefaultLimit(chains, sId, { min: -0.2, max: 0.2 });
+    const base = pos({ S0: [0, 0], S1: [10, 0], S2: [20, 0] });
+    return { chains, sId, base, baseRot: { S0: 0, S1: 0, S2: 0 } };
+  }
+  // Inter-segment articulation at joint k = the turn from segment k-1 to segment k.
+  // poseRig stores each token's SEGMENT direction (radians) as its rotation, so the
+  // articulation is just the difference of adjacent tokens' output rotations.
+  const artic = (rot: Record<string, number>, order: string[], k: number) =>
+    Math.abs(wrapAngle(rot[order[k]] - rot[order[k - 1]]));
+
+  it("clamps every inter-segment bend to the chain limit in LIMB mode (the fix)", () => {
+    const { chains, sId, base, baseRot } = limbRig(true);
+    const order = orderedNodes(chains[sId]);
+    const target = { x: 0, y: 20 }; // reach up-and-back: forces the arm to fold
+    const { rotations } = poseRig(chains, sId, base, { mode: "solve", grabbedId: "S2", target }, undefined, baseRot);
+    expect(artic(rotations, order, 1)).toBeLessThanOrEqual(0.2 + 1e-3); // elbow (S0→S1)
+    expect(artic(rotations, order, 2)).toBeLessThanOrEqual(0.2 + 1e-3); // wrist (S1→S2)
+  });
+
+  it("without a limit the same pose bends well past that cap (limit is doing the work)", () => {
+    const { chains, sId, base, baseRot } = limbRig(false);
+    const order = orderedNodes(chains[sId]);
+    const target = { x: 0, y: 20 };
+    const { rotations } = poseRig(chains, sId, base, { mode: "solve", grabbedId: "S2", target }, undefined, baseRot);
+    const worst = Math.max(artic(rotations, order, 1), artic(rotations, order, 2));
+    expect(worst).toBeGreaterThan(0.2);
   });
 });
 

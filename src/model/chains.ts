@@ -500,64 +500,85 @@ export function renameNode(chains: ChainMap, tokenId: string, name: string): Cha
 }
 
 // ---- Bend limits (captured by posing) --------------------------------------
+//
+// Two tiers, mirroring stiffness: a chain-wide `settings.defaultLimit` (one
+// interval applied to every limitable joint) and a per-node `node.limit`
+// override that wins where set. Both are captured by posing — never typed.
 
-/** True if any joint in the chain carries a captured bend limit. */
-export function chainHasLimits(chain: Chain): boolean {
-  return Object.values(chain.nodes).some((n) => n.limit != null);
+/**
+ * Is `id` a *limitable* joint of `chain` — one with a reference bone above it to
+ * measure a bend against? The default (centre) rig needs two bones, so the root
+ * and the first movable node are free (the 3rd token onward can be limited). A
+ * segment rig measures the turn between adjacent SEGMENTS, so every non-root
+ * segment articulates against the one before it and can be limited.
+ */
+export function isLimitable(chain: Chain, id: string): boolean {
+  const i = orderedNodes(chain).indexOf(id);
+  if (i < 0) return false;
+  return isSegmentRig(chain) ? i >= 1 : i >= 2;
 }
 
-/** The chain's current per-node bend limits, keyed by token id. */
-export function chainLimits(chain: Chain): Record<string, BendLimit> {
-  const out: Record<string, BendLimit> = {};
-  for (const [id, n] of Object.entries(chain.nodes)) {
-    if (n.limit) out[id] = { min: n.limit.min, max: n.limit.max };
-  }
-  return out;
+/** The limitable joints of a chain, in root→tip order. */
+export function limitableTokens(chain: Chain): string[] {
+  return orderedNodes(chain).filter((id) => isLimitable(chain, id));
+}
+
+/** True if the chain has any limitable joint at all (so limit UI is meaningful). */
+export function chainCanLimit(chain: Chain): boolean {
+  return limitableTokens(chain).length > 0;
+}
+
+/** True if a chain-wide default bend limit is set. */
+export function hasDefaultLimit(chain: Chain): boolean {
+  return chain.settings.defaultLimit != null;
+}
+
+/** True if any limit — the chain default or any per-node override — is set. */
+export function chainHasLimits(chain: Chain): boolean {
+  return hasDefaultLimit(chain) || Object.values(chain.nodes).some((n) => n.limit != null);
 }
 
 /**
- * Replace a chain's bend limits wholesale: nodes named in `limits` get that
- * interval, every other node is freed. No-ops if the chain is missing.
+ * The effective bend limit for one joint: its own `limit` override if set, else
+ * the chain default, else `null` (free). Callers still gate on joint index (the
+ * solver only clamps limitable positions), so this may return the default for a
+ * non-limitable node — harmless, as that node's limit is never consulted.
  */
-export function setChainLimits(
-  chains: ChainMap,
-  chainId: string,
-  limits: Record<string, BendLimit>,
-): ChainMap {
+export function effectiveLimit(chain: Chain, id: string): BendLimit | null {
+  return chain.nodes[id]?.limit ?? chain.settings.defaultLimit ?? null;
+}
+
+/** Union two relative-bend intervals (or seed from one) into the widest range. */
+export function unionRange(a: BendLimit | null | undefined, b: BendLimit): BendLimit {
+  return a ? { min: Math.min(a.min, b.min), max: Math.max(a.max, b.max) } : { min: b.min, max: b.max };
+}
+
+/** Set (or, with `null`, clear) the chain-wide default bend limit. */
+export function setDefaultLimit(chains: ChainMap, chainId: string, limit: BendLimit | null): ChainMap {
   const next = clone(chains);
   const chain = next[chainId];
   if (!chain) return chains;
-  for (const [id, n] of Object.entries(chain.nodes)) {
-    const l = limits[id];
-    if (l) n.limit = { min: l.min, max: l.max };
-    else delete n.limit;
-  }
+  if (limit) chain.settings.defaultLimit = { min: limit.min, max: limit.max };
+  else delete chain.settings.defaultLimit;
   return next;
 }
 
-/** Free every joint in the chain (remove all captured limits). */
+/** Set (or, with `null`, clear) one node's bend-limit override. */
+export function setNodeLimit(chains: ChainMap, chainId: string, nodeId: string, limit: BendLimit | null): ChainMap {
+  const next = clone(chains);
+  const node = next[chainId]?.nodes[nodeId];
+  if (!node) return chains;
+  if (limit) node.limit = { min: limit.min, max: limit.max };
+  else delete node.limit;
+  return next;
+}
+
+/** Free every joint in the chain: drop the default AND every per-node override. */
 export function clearLimits(chains: ChainMap, chainId: string): ChainMap {
   const next = clone(chains);
   const chain = next[chainId];
   if (!chain) return chains;
+  delete chain.settings.defaultLimit;
   for (const n of Object.values(chain.nodes)) delete n.limit;
   return next;
-}
-
-/**
- * Widen (or create) each joint's interval so it includes the given `bends`. Pure
- * range math on a plain limits map — the UI unions two captured poses through
- * this before persisting, so a single degenerate pose is never stored alone.
- */
-export function expandLimits(
-  existing: Record<string, BendLimit>,
-  bends: Record<string, number>,
-): Record<string, BendLimit> {
-  const out: Record<string, BendLimit> = {};
-  for (const [id, l] of Object.entries(existing)) out[id] = { min: l.min, max: l.max };
-  for (const [id, v] of Object.entries(bends)) {
-    const cur = out[id];
-    out[id] = cur ? { min: Math.min(cur.min, v), max: Math.max(cur.max, v) } : { min: v, max: v };
-  }
-  return out;
 }

@@ -1,5 +1,5 @@
-import { type Chain, type ChainMap, type Vec2, STIFFNESS_RETENTION } from "../types";
-import { descendantChainIds, effectiveStiffness, isSegmentRig, orderedNodes, parentChainId } from "../model/chains";
+import { type BendLimit, type Chain, type ChainMap, type Vec2, STIFFNESS_RETENTION } from "../types";
+import { descendantChainIds, effectiveLimit, effectiveStiffness, isSegmentRig, orderedNodes, parentChainId } from "../model/chains";
 import { solveChain, type SolveOptions } from "./fabrik";
 import { jointAngles, reconstructJoints, seatTokens, solveSegmentJoints } from "./segment";
 import { add, angle, dist, rotateAround, sub, wrapAngle } from "./vec";
@@ -24,6 +24,44 @@ export function relativeBends(
     if (a && b && c) out[order[i]] = wrapAngle(angle(b, c) - angle(a, b));
   }
   return out;
+}
+
+/**
+ * The signed relative bend at each limitable joint of a SEGMENT rig, keyed by
+ * token id — the turn from one segment's direction to the next, measured from the
+ * rigidly reconstructed joints (so it matches what the solver clamps in joint
+ * space). Every non-root segment articulates against the one before it, so
+ * `order[1]` onward each carry a bend (one more than the centre rig, which can't
+ * measure the first movable joint). Empty if a position/rotation/seg is missing.
+ */
+export function segmentRelativeBends(
+  chain: Chain,
+  positions: Record<string, Vec2>,
+  rotations: Record<string, number>,
+): Record<string, number> {
+  const order = orderedNodes(chain);
+  const centres = order.map((id) => positions[id]);
+  const seg = order.map((id) => chain.nodes[id]?.seg);
+  if (centres.some((c) => !c) || seg.some((s) => !s)) return {};
+  const rot = order.map((id) => rotations[id] ?? 0);
+  const angs = jointAngles(reconstructJoints(centres as Vec2[], rot, seg as NonNullable<typeof seg[number]>[]));
+  const out: Record<string, number> = {};
+  for (let k = 1; k < order.length; k++) out[order[k]] = wrapAngle(angs[k] - angs[k - 1]);
+  return out;
+}
+
+/**
+ * The relative bend at every limitable joint of `chain`, keyed by token id —
+ * segment-to-segment for a limb rig, centre-to-centre otherwise. This is what
+ * "capture from pose" reads; it's measured the SAME way the matching solve path
+ * clamps, so a captured range and the solver agree.
+ */
+export function chainBends(
+  chain: Chain,
+  positions: Record<string, Vec2>,
+  rotations: Record<string, number>,
+): Record<string, number> {
+  return isSegmentRig(chain) ? segmentRelativeBends(chain, positions, rotations) : relativeBends(chain, positions);
 }
 
 /**
@@ -105,7 +143,8 @@ export function solvePose(
   const stiffness = path.slice(1).map((id) => STIFFNESS_RETENTION[effectiveStiffness(chain, id)]);
   // Per-joint bend limits, aligned with `path` (points): a limit at point i
   // clamps the bend there, so it applies only for i >= 2 (needs a bone above).
-  const limits = path.map((id, i) => (i >= 2 ? chain.nodes[id].limit ?? null : null));
+  // Each joint resolves its own override or falls back to the chain default.
+  const limits = path.map((id, i) => (i >= 2 ? effectiveLimit(chain, id) : null));
   const solved = solveChain(pts, rest, targetPos, { ...opts, stiffness, limits });
   path.forEach((id, i) => {
     out[id] = solved[i];
@@ -166,8 +205,15 @@ export function poseRig(
       if (centres.every(Boolean)) {
         const seg = order.map((id) => posed.nodes[id].seg!);
         const rot = order.map((id) => baseRot[id] ?? 0);
+        // Bend limits in JOINT space (points = the N+1 joints): point i (i >= 2)
+        // clamps the turn from segment (i-2) to segment (i-1) — the articulation
+        // captured for token order[i-1]. Same convention `segmentRelativeBends`
+        // uses, so a captured range and this clamp line up.
+        const limits: (BendLimit | null)[] = Array.from({ length: order.length + 1 }, (_, i) =>
+          i >= 2 ? effectiveLimit(posed, order[i - 1]) : null,
+        );
         const joints = solveSegmentJoints(
-          centres as Vec2[], rot, seg, order.indexOf(grab.grabbedId), grab.target, opts,
+          centres as Vec2[], rot, seg, order.indexOf(grab.grabbedId), grab.target, { ...opts, limits },
         );
         seatTokens(joints, seg).forEach((c, i) => {
           out[order[i]] = c;

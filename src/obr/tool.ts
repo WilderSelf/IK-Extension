@@ -7,6 +7,7 @@ import { type Chain, type ChainMap, type Vec2, DEFAULT_ROTATION_OFFSET_DEG } fro
 import { type Grab, type Pose, poseRig } from "../ik/pose";
 import { MODE_POSE, POSE_SHORTCUT, TOOL_ID, asset } from "./constants";
 import { descendantChainIds, findChainForToken, getChains } from "./chainStore";
+import { refreshBones } from "./bones";
 import { getPositions, radToObrDeg } from "./scene";
 import { dist } from "../ik/vec";
 
@@ -200,6 +201,10 @@ async function onPoseDragEnd(_ctx: ToolContext, event: ToolEvent): Promise<void>
   // Persist final positions to the scene once, then release the interaction.
   await OBR.scene.items.updateItems(state.ids, (items) => applyPose(state, pose, items));
   state.stop();
+  // Redraw the skeleton overlay (if enabled) so bones/joints track the new pose.
+  // The overlay lines can't attach to two moving tokens, so they rebuild on
+  // release rather than following live mid-drag.
+  refreshBones().catch(() => {});
 }
 
 function onPoseDragCancel(): void {

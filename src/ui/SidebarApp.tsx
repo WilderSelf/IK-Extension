@@ -33,7 +33,7 @@ import {
   updateSettings,
 } from "../obr/chainStore";
 import { clearHighlights, highlightTokens } from "../obr/highlight";
-import { BONES_KEY, refreshBones } from "../obr/bones";
+import { BONES_KEY, EDIT_PIVOTS_KEY, refreshBones } from "../obr/bones";
 import { relativeBends } from "../ik/pose";
 import { getItemNames, getPositions, getRotations, getSelectedTokenIds, getSelection } from "../obr/scene";
 import { POSE_SHORTCUT } from "../obr/constants";
@@ -120,6 +120,32 @@ export function SidebarApp() {
       /* storage-disabled embeds: keep the in-memory toggle */
     }
     refreshBones().catch(() => {});
+  };
+  // "Edit pivots" puts the Pose tool into pivot-drag mode (dragging a joint dot
+  // moves that bone's pivot instead of posing). A per-browser view mode, like
+  // Bones — which it force-enables, since you need to see the joints to grab them.
+  const [editPivots, setEditPivots] = useState(() => {
+    try {
+      return localStorage.getItem(EDIT_PIVOTS_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleEditPivots = (v: boolean) => {
+    setEditPivots(v);
+    try {
+      localStorage.setItem(EDIT_PIVOTS_KEY, v ? "1" : "0");
+      if (v) localStorage.setItem(BONES_KEY, "1");
+    } catch {
+      /* storage-disabled embeds: keep the in-memory toggle */
+    }
+    if (v) setShowBones(true);
+    refreshBones().catch(() => {});
+    setStatus(
+      v
+        ? "Edit pivots on: with the IK Chains tool, drag a joint dot on the map to move that bone's pivot. Turn off to pose again."
+        : "",
+    );
   };
   // The intro help collapses to a single line; it's shown by default and the
   // last open/closed choice persists per browser (only "0" hides it).
@@ -225,6 +251,20 @@ export function SidebarApp() {
     refreshBones().catch(() => {});
   }, [ready, chains]);
 
+  // Never leave the tool stuck in pivot-edit mode with nothing to edit: if the
+  // last segment rig is turned off, exit edit-pivots so dragging poses again.
+  useEffect(() => {
+    const hasSeg = Object.values(chains).some((c) => c.settings.segmentRig);
+    if (hasSeg || !editPivots) return;
+    setEditPivots(false);
+    try {
+      localStorage.setItem(EDIT_PIVOTS_KEY, "0");
+    } catch {
+      /* ignore */
+    }
+    refreshBones().catch(() => {});
+  }, [chains, editPivots]);
+
   // Toggle the on-canvas highlight for a chain. Clicking the already-highlighted
   // chain clears it. We deliberately DON'T OBR.player.select() the tokens here:
   // Owlbear paints its own accent-coloured selection outline over a selection,
@@ -326,6 +366,7 @@ export function SidebarApp() {
   const onDetach = (chainId: string) => patch(setParentNode(chains, chainId, null));
 
   const list = Object.values(chains);
+  const hasSegmentRig = list.some((c) => c.settings.segmentRig);
 
   return (
     <div className="app">
@@ -341,6 +382,14 @@ export function SidebarApp() {
                 onChange={(e) => toggleBones(e.target.checked)} />
               Bones
             </label>
+            {hasSegmentRig && (
+              <label className="adv-toggle"
+                title="Drag a joint dot on the map to move that bone's pivot (uses the IK Chains tool). Shows the skeleton and pauses posing while on.">
+                <input type="checkbox" checked={editPivots}
+                  onChange={(e) => toggleEditPivots(e.target.checked)} />
+                Edit pivots
+              </label>
+            )}
             <label className="adv-toggle"
               title="Reveal extra per-token controls: stiffness weights and bend limits">
               <input type="checkbox" checked={advanced}

@@ -16,7 +16,7 @@ import {
   STIFFNESS_ORDER,
   defaultSettings,
 } from "../types";
-import { captureSegments, segmentAngles } from "../ik/segment";
+import { captureSegments, defaultJointParams, jointParamFromWorld, segmentAngles } from "../ik/segment";
 
 const clone = (chains: ChainMap): ChainMap => JSON.parse(JSON.stringify(chains)) as ChainMap;
 
@@ -386,23 +386,83 @@ export function enableSegmentRig(
   const order = orderedNodes(chain);
   const centres = order.map((id) => positions[id]);
   if (order.length < 2 || centres.some((c) => !c)) return chains;
-  const seg = captureSegments(centres as Vec2[]);
-  const segDeg = segmentAngles(centres as Vec2[]).map((a) => (a * 180) / Math.PI);
   const next = clone(chains);
-  order.forEach((id, i) => {
-    next[chainId].nodes[id].seg = {
-      len: seg[i].len,
-      frac: seg[i].frac,
-      offsetDeg: (rotations[id] ?? 0) - segDeg[i],
-    };
-  });
+  // Fresh capture treats the current pose as rest and starts from the auto
+  // (midpoint) joints — the user then drags individual pivots off that baseline.
+  next[chainId].pivots = undefined;
+  captureSegData(next[chainId], centres as Vec2[], rotations);
   next[chainId].settings.segmentRig = true;
   return next;
 }
 
 /**
- * Turn limb mode OFF. The captured `seg` data is left in place (harmless when the
- * flag is off) so re-enabling without a fresh pose reuses it; the centre-based
+ * Recapture each node's `seg` data (segment length, seat, rotation offset) from
+ * the given centres + rotations and the chain's current `pivots`. Mutates the
+ * chain in place — callers pass a cloned chain.
+ */
+function captureSegData(chain: Chain, centres: Vec2[], rotations: Record<string, number>): void {
+  const order = orderedNodes(chain);
+  const seg = captureSegments(centres, chain.pivots);
+  const segDeg = segmentAngles(centres, chain.pivots).map((a) => (a * 180) / Math.PI);
+  order.forEach((id, i) => {
+    chain.nodes[id].seg = {
+      len: seg[i].len,
+      seatAlong: seg[i].seatAlong,
+      seatPerp: seg[i].seatPerp,
+      offsetDeg: (rotations[id] ?? 0) - segDeg[i],
+    };
+  });
+}
+
+/**
+ * Move segment-rig joint `jointIndex` to world position `world` (from a canvas
+ * drag), then recapture the rest data so the new pivot sticks. The joint is
+ * stored in the frame of its anchor token pair, so it follows the rig when posed.
+ * Needs a segment rig with ≥ 2 positioned nodes; a no-op otherwise.
+ */
+export function setJointPivot(
+  chains: ChainMap,
+  chainId: string,
+  jointIndex: number,
+  world: Vec2,
+  positions: Record<string, Vec2>,
+  rotations: Record<string, number>,
+): ChainMap {
+  const chain = chains[chainId];
+  if (!chain?.settings.segmentRig) return chains;
+  const order = orderedNodes(chain);
+  const centres = order.map((id) => positions[id]);
+  if (order.length < 2 || centres.some((c) => !c)) return chains;
+  if (jointIndex < 0 || jointIndex > order.length) return chains;
+  const next = clone(chains);
+  const params = next[chainId].pivots ?? defaultJointParams(order.length);
+  params[jointIndex] = jointParamFromWorld(centres as Vec2[], jointIndex, world);
+  next[chainId].pivots = params;
+  captureSegData(next[chainId], centres as Vec2[], rotations);
+  return next;
+}
+
+/** Reset a segment rig's joints back to the auto midpoints, recapturing rest data. */
+export function resetJointPivots(
+  chains: ChainMap,
+  chainId: string,
+  positions: Record<string, Vec2>,
+  rotations: Record<string, number>,
+): ChainMap {
+  const chain = chains[chainId];
+  if (!chain?.settings.segmentRig) return chains;
+  const order = orderedNodes(chain);
+  const centres = order.map((id) => positions[id]);
+  if (order.length < 2 || centres.some((c) => !c)) return chains;
+  const next = clone(chains);
+  next[chainId].pivots = undefined;
+  captureSegData(next[chainId], centres as Vec2[], rotations);
+  return next;
+}
+
+/**
+ * Turn limb mode OFF. The captured `seg` data + `pivots` are left in place
+ * (harmless when the flag is off) so re-enabling reuses them; the centre-based
  * `boneOffsetDeg` was never touched, so the default rig resumes exactly.
  */
 export function disableSegmentRig(chains: ChainMap, chainId: string): ChainMap {

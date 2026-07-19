@@ -17,6 +17,8 @@ import {
   expandLimits,
   isSegmentRig,
   orderedNodes,
+  resetJointPivots,
+  setJointPivot,
   pruneMissing,
   removeToken,
   renameChain,
@@ -83,7 +85,7 @@ describe("segment rig (limb mode)", () => {
     expect(next[id].settings.segmentRig).toBe(true);
     expect(isSegmentRig(next[id])).toBe(true);
     // joints from centres 0,10,20 → -5,5,15,25: each segment len 10, centre at 0.5.
-    expect(next[id].nodes.R.seg).toEqual({ len: 10, frac: 0.5, offsetDeg: 0 });
+    expect(next[id].nodes.R.seg).toEqual({ len: 10, seatAlong: 0.5, seatPerp: 0, offsetDeg: 0 });
     expect(next[id].nodes.B.seg?.len).toBeCloseTo(10, 6);
   });
 
@@ -106,6 +108,33 @@ describe("segment rig (limb mode)", () => {
   it("no-ops without at least two positioned tokens", () => {
     const [map, id] = armChain();
     expect(enableSegmentRig(map, id, { R: { x: 0, y: 0 } }, ROT)).toBe(map);
+  });
+
+  it("setJointPivot moves a joint (stores pivots) and recaptures rest data", () => {
+    const [map0, id] = armChain();
+    const map = enableSegmentRig(map0, id, POS, ROT);
+    expect(map[id].pivots).toBeUndefined(); // auto joints until adjusted
+    // Drag joint 0 (shoulder) from its auto spot (-5,0) to (-8,0): the root
+    // segment (joint0→joint1=5) is now longer, so R.seg.len grows.
+    const next = setJointPivot(map, id, 0, { x: -8, y: 0 }, POS, ROT);
+    expect(next[id].pivots).toBeDefined();
+    expect(next[id].pivots!.length).toBe(4); // N+1 joints for 3 tokens
+    expect(next[id].nodes.R.seg!.len).toBeCloseTo(13, 6); // -8 → 5
+    // Untouched interior joint keeps the auto midpoint length.
+    expect(next[id].nodes.A.seg!.len).toBeCloseTo(10, 6);
+  });
+
+  it("setJointPivot no-ops when the chain isn't a segment rig", () => {
+    const [map, id] = armChain();
+    expect(setJointPivot(map, id, 0, { x: 1, y: 1 }, POS, ROT)).toBe(map);
+  });
+
+  it("resetJointPivots restores the auto midpoints", () => {
+    const [map0, id] = armChain();
+    const map = setJointPivot(enableSegmentRig(map0, id, POS, ROT), id, 0, { x: -8, y: 0 }, POS, ROT);
+    const reset = resetJointPivots(map, id, POS, ROT);
+    expect(reset[id].pivots).toBeUndefined();
+    expect(reset[id].nodes.R.seg!.len).toBeCloseTo(10, 6); // back to auto
   });
 });
 

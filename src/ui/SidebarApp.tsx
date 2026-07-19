@@ -12,6 +12,8 @@ import {
 import {
   buildChain,
   chainCanLimit,
+  chainHasLimits,
+  clearLimits,
   deleteChain,
   effectiveStiffness,
   findChainForToken,
@@ -605,6 +607,12 @@ function ChainCard({
       ? setDefaultLimit(chains, chain.id, null)
       : setNodeLimit(chains, chain.id, target, null));
   };
+  // Full reset: drop the chain default AND every per-token override in one go —
+  // also the clean way to shed limits captured before the segment-space rework.
+  const clearAllLimits = () => {
+    setPending(null);
+    onPatch(clearLimits(chains, chain.id));
+  };
 
   const limitOn = (target: string): boolean =>
     (target === "" ? chain.settings.defaultLimit : chain.nodes[target]?.limit) != null;
@@ -742,8 +750,11 @@ function ChainCard({
             {pending?.target === "" && (
               <button className="mini-btn" onClick={() => setPending(null)}>Cancel</button>
             )}
-            {hasDefaultLimit(chain) && (
-              <button className="mini-btn danger" onClick={() => clearLimit("")}>Clear</button>
+            {chainHasLimits(chain) && (
+              <button className="mini-btn danger" onClick={clearAllLimits}
+                title="Clear the chain limit AND every per-token override on this chain">
+                Clear all
+              </button>
             )}
           </div>
           <p className="limits-hint">

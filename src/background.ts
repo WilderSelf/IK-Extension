@@ -2,6 +2,7 @@ import OBR from "@owlbear-rodeo/sdk";
 import type { ChainMap } from "./types";
 import { setupTool } from "./obr/tool";
 import { setupContextMenu } from "./obr/contextMenu";
+import { setupFollow } from "./obr/follow";
 import { getChains, onChainsChange, pruneMissing, saveChains } from "./obr/chainStore";
 
 // Cached copy of the chain map, kept current via onChainsChange, so the
@@ -23,6 +24,10 @@ function hasMissingToken(chains: ChainMap, existing: Set<string>): boolean {
 OBR.onReady(async () => {
   // Register the toolbar tool and context menu (scene-independent).
   await Promise.all([setupTool(), setupContextMenu()]);
+
+  // Reactive follow: carry chains attached to a bare (non-chain) parent token
+  // whenever that token is moved by any tool.
+  setupFollow();
 
   // Track GM status so only one client owns pruning.
   OBR.player.getRole().then((r) => (isGM = r === "GM")).catch(() => {});

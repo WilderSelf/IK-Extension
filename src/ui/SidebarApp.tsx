@@ -211,8 +211,17 @@ export function SidebarApp() {
   }, [ready]);
 
   // Refresh token display names whenever the set of chained tokens changes.
+  // Include each chain's parent token (which may be a BARE body token, not a
+  // chain node) so the "Follows …" line can show its name, not an id.
   useEffect(() => {
-    const ids = Object.values(chains).flatMap((c) => Object.keys(c.nodes));
+    const ids = [
+      ...new Set(
+        Object.values(chains).flatMap((c) => [
+          ...Object.keys(c.nodes),
+          ...(c.parentNodeId ? [c.parentNodeId] : []),
+        ]),
+      ),
+    ];
     if (ids.length === 0) {
       setNames({}); // clear stale names once the last chain is gone
       return;
@@ -622,15 +631,16 @@ function ChainCard({
   const captureLabel = (target: string): string =>
     limitOn(target) ? "Capture (widen)" : pending?.target === target ? "Capture pose 2" : "Capture pose 1";
 
-  // Attachment: a single selected token in ANOTHER chain can become this chain's
-  // parent node, so this chain rides along when that one moves.
+  // Attachment: any single selected token that isn't part of THIS chain can become
+  // this chain's parent, so this chain rides along when that token moves — another
+  // chain's node (carried when that chain is posed) or a BARE body token (carried
+  // reactively when it's dragged by any tool).
   const parentName = chain.parentNodeId
     ? names[chain.parentNodeId] ?? chain.parentNodeId.slice(0, 8)
     : undefined;
   const sel = [...selected];
   const attachTarget = sel.length === 1 ? sel[0] : undefined;
-  const targetOwner = attachTarget ? findChainForToken(chains, attachTarget) : undefined;
-  const canAttach = !!targetOwner && targetOwner.id !== chain.id;
+  const canAttach = !!attachTarget && !(attachTarget in chain.nodes);
 
   return (
     <div className={`chain${collapsed ? " collapsed" : ""}`}>
@@ -780,9 +790,9 @@ function ChainCard({
         </div>
       ) : (
         <div className="row">
-          <span className="chain-sub">Follow another chain's token</span>
+          <span className="chain-sub">Follow another token</span>
           <button disabled={!canAttach}
-            title="Select one token that belongs to another chain, then attach — this chain will ride along with it"
+            title="Select one token — another chain's node, or a plain body token — then attach. This chain rides along when that token moves (drag a body with any tool and the arms follow)."
             onClick={() => attachTarget && onAttach(chain.id, attachTarget)}>
             Attach to selection
           </button>

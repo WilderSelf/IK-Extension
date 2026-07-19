@@ -449,11 +449,19 @@ describe("attachment (setParentNode / lifecycle)", () => {
     expect(setParentNode(map, b, "A2")[b].parentNodeId).toBe("A2");
   });
 
-  it("rejects attaching to the same chain or a non-existent token", () => {
+  it("rejects attaching to the same chain (any of its own nodes)", () => {
     const map = twoChains();
     const b = idOf(map, "B0");
-    expect(setParentNode(map, b, "B1")).toBe(map); // same chain
-    expect(setParentNode(map, b, "ghost")).toBe(map); // not a node anywhere
+    expect(setParentNode(map, b, "B1")).toBe(map); // a segment of this chain
+    expect(setParentNode(map, b, "B0")).toBe(map); // its own root
+  });
+
+  it("attaches to a BARE token (a body that isn't in any chain)", () => {
+    const map = twoChains();
+    const b = idOf(map, "B0");
+    // "BODY" is not a node of any chain — allowed, so the chain follows it
+    // reactively when that token moves.
+    expect(setParentNode(map, b, "BODY")[b].parentNodeId).toBe("BODY");
   });
 
   it("rejects a cycle", () => {

@@ -1,6 +1,13 @@
 import { type KeyboardEvent, useEffect, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
-import { type Chain, type ChainMap, type Stiffness, STIFFNESS_LABELS, STIFFNESS_ORDER } from "../types";
+import {
+  type Chain,
+  type ChainMap,
+  type Stiffness,
+  CHAIN_PALETTE,
+  STIFFNESS_LABELS,
+  STIFFNESS_ORDER,
+} from "../types";
 import {
   buildChain,
   chainHasLimits,
@@ -17,11 +24,13 @@ import {
   renameChain,
   renameNode,
   saveChains,
+  setChainColor,
   setChainLimits,
   setNodeStiffness,
   setParentNode,
   updateSettings,
 } from "../obr/chainStore";
+import { clearHighlights, highlightTokens } from "../obr/highlight";
 import { relativeBends } from "../ik/pose";
 import { getItemNames, getPositions, getRotations, getSelectedTokenIds, getSelection } from "../obr/scene";
 import { POSE_SHORTCUT } from "../obr/constants";
@@ -70,6 +79,8 @@ export function SidebarApp() {
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set());
   const [status, setStatus] = useState("");
   const [ready, setReady] = useState(false);
+  // The chain currently highlighted on the canvas (clicking its name toggles it).
+  const [highlightedChainId, setHighlightedChainId] = useState<string | null>(null);
   // "Advanced settings" reveals per-token stiffness (and, later, bend limits).
   // A local UI preference, not scene data, so it persists per browser.
   const [advanced, setAdvanced] = useState(() => {
@@ -158,6 +169,37 @@ export function SidebarApp() {
       cancelled = true; // ignore an out-of-order resolution from a prior render
     };
   }, [chains]);
+
+  // Highlight lifecycle: clear any stale highlight shapes on open and on close so
+  // they never outlive the popover.
+  useEffect(() => {
+    if (!ready) return;
+    clearHighlights().catch(() => {});
+    return () => {
+      clearHighlights().catch(() => {});
+    };
+  }, [ready]);
+
+  // If the highlighted chain is deleted, drop its highlight.
+  useEffect(() => {
+    if (highlightedChainId && !chains[highlightedChainId]) {
+      clearHighlights().catch(() => {});
+      setHighlightedChainId(null);
+    }
+  }, [chains, highlightedChainId]);
+
+  // Toggle the on-canvas highlight for a chain (and select its tokens so they're
+  // ready to pose). Clicking the already-highlighted chain clears it.
+  const onSelectChain = (chainId: string, ids: string[], color: string) => {
+    if (highlightedChainId === chainId) {
+      clearHighlights().catch(() => {});
+      setHighlightedChainId(null);
+      return;
+    }
+    highlightTokens(ids, color).catch(() => {});
+    setHighlightedChainId(chainId);
+    OBR.player.select(ids, true).catch(() => {});
+  };
 
   async function patch(next: ChainMap) {
     setChains(next);
@@ -280,7 +322,8 @@ export function SidebarApp() {
             onAttach={onAttach}
             onDetach={onDetach}
             onSelectNode={(id) => OBR.player.select([id], true).catch(() => {})}
-            onSelectChain={(ids) => OBR.player.select(ids, true).catch(() => {})}
+            onSelectChain={onSelectChain}
+            highlighted={highlightedChainId === chain.id}
           />
         ))}
       </div>
@@ -299,6 +342,7 @@ function ChainCard({
   onDetach,
   onSelectNode,
   onSelectChain,
+  highlighted,
 }: {
   chain: Chain;
   chains: ChainMap;
@@ -309,13 +353,21 @@ function ChainCard({
   onAttach: (chainId: string, parentTokenId: string) => void;
   onDetach: (chainId: string) => void;
   onSelectNode: (id: string) => void;
-  onSelectChain: (ids: string[]) => void;
+  onSelectChain: (chainId: string, ids: string[], color: string) => void;
+  highlighted: boolean;
 }) {
   const nodes = orderedNodes(chain);
   const rootName = names[chain.rootId] ?? chain.rootId.slice(0, 8);
   // Display labels: the custom name if set, else the token's scene name.
   const chainLabel = chain.name?.trim() || rootName;
   const nodeLabel = (id: string) => chain.nodes[id]?.name?.trim() || names[id] || id.slice(0, 8);
+  // Highlight colour (neutral fallback for chains built before colours existed).
+  const chainColor = chain.color ?? "#8b8f9a";
+  const [showColors, setShowColors] = useState(false);
+  const pickColor = (c: string) => {
+    onPatch(setChainColor(chains, chain.id, c));
+    setShowColors(false);
+  };
 
   // Collapse the whole card to just its name; collapse each token to just its
   // name (hiding its stiffness sub-row). Tokens start collapsed so the list
@@ -416,14 +468,21 @@ function ChainCard({
           onClick={() => setCollapsed((c) => !c)}>
           <CaretRightIcon size={12} className={`caret${collapsed ? "" : " open"}`} />
         </button>
+        <button className="swatch" style={{ background: chainColor }}
+          aria-label="Change chain highlight colour" aria-expanded={showColors}
+          title="Change this chain's highlight colour"
+          onClick={() => setShowColors((v) => !v)} />
         <div className="chain-heading">
           {editing?.type === "chain" ? (
             <input className="rename-input" autoFocus value={draft} aria-label="Chain name"
               title="Type a name for this chain, then press Enter (Esc to cancel)"
               onChange={(e) => setDraft(e.target.value)} onBlur={commitEdit} onKeyDown={renameKeys} />
           ) : (
-            <button className="chain-title-btn" onClick={() => onSelectChain(nodes)}
-              title="Select all of this chain's tokens on the map">
+            <button className={`chain-title-btn${highlighted ? " highlighted" : ""}`}
+              onClick={() => onSelectChain(chain.id, nodes, chainColor)}
+              title={highlighted
+                ? "Clear this chain's highlight"
+                : "Highlight this chain's tokens on the map in its colour"}>
               <span className="chain-title">{chainLabel}</span>
             </button>
           )}
@@ -442,6 +501,21 @@ function ChainCard({
           )}
         </div>
       </div>
+
+      {showColors && (
+        <div className="palette" role="group" aria-label="Chain highlight colour">
+          {CHAIN_PALETTE.map((c) => (
+            <button key={c} className={`swatch${c === chainColor ? " active" : ""}`}
+              style={{ background: c }} title={c} aria-label={`Set colour ${c}`}
+              onClick={() => pickColor(c)} />
+          ))}
+          <label className="swatch custom" title="Custom colour">
+            <input type="color" value={chainColor}
+              aria-label="Custom chain colour"
+              onChange={(e) => onPatch(setChainColor(chains, chain.id, e.target.value))} />
+          </label>
+        </div>
+      )}
 
       {!collapsed && (
        <>

@@ -116,6 +116,17 @@ export interface ChainSettings {
   ease?: boolean;
 }
 
+/**
+ * Distinct highlight colours auto-assigned to new chains (cycled, preferring an
+ * unused one) so each chain reads differently on the canvas. The swatch picker
+ * also offers a free-form custom colour.
+ */
+export const CHAIN_PALETTE: string[] = [
+  "#ef4444", "#3b82f6", "#22c55e", "#f59e0b",
+  "#a855f7", "#ec4899", "#06b6d4", "#f97316",
+  "#84cc16", "#14b8a6", "#eab308", "#8b5cf6",
+];
+
 export interface Chain {
   id: string;
   /** Token item id of the pinned root. */
@@ -125,6 +136,13 @@ export interface Chain {
    * falls back to the root token's scene name. Does not rename the Owlbear item.
    */
   name?: string;
+  /**
+   * Highlight colour (hex) for this chain — used for the on-canvas highlight when
+   * the chain is picked in the popover, and shown as the header swatch. Assigned
+   * from `CHAIN_PALETTE` at build time; undefined on chains built before colours
+   * existed (they fall back to a neutral swatch until set).
+   */
+  color?: string;
   /**
    * All nodes, including the root, keyed by token item id. A chain is a single
    * LINEAR strand: every non-root node has exactly one parent and each node has

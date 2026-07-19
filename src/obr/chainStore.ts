@@ -16,6 +16,7 @@ export {
   effectiveStiffness,
   renameChain,
   renameNode,
+  setChainColor,
   chainHasLimits,
   chainLimits,
   setChainLimits,

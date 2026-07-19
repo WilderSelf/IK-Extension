@@ -12,6 +12,7 @@ import {
   type ChainNode,
   type Stiffness,
   type Vec2,
+  CHAIN_PALETTE,
   STIFFNESS_ORDER,
   defaultSettings,
 } from "../types";
@@ -128,7 +129,21 @@ export function buildChain(
     map = addNode(map, id, tokenId, parent, restLength, boneOffsetDeg);
     parent = tokenId;
   }
+  map[id].color = pickChainColor(chains); // distinct highlight colour per chain
   return [map, id];
+}
+
+/**
+ * A highlight colour for a new chain: the first palette entry not already used
+ * by an existing chain, else cycling by chain count so distinct chains stay
+ * visually distinct.
+ */
+export function pickChainColor(chains: ChainMap): string {
+  const used = new Set(Object.values(chains).map((c) => c.color));
+  return (
+    CHAIN_PALETTE.find((c) => !used.has(c)) ??
+    CHAIN_PALETTE[Object.keys(chains).length % CHAIN_PALETTE.length]
+  );
 }
 
 /**
@@ -328,6 +343,14 @@ function easedStiffness(chain: Chain, nodeId: string): Stiffness {
   const top = STIFFNESS_ORDER.length - 1;
   const level = Math.round(top * (1 - k / (movable - 1)));
   return STIFFNESS_ORDER[level];
+}
+
+/** Set a chain's highlight colour (hex). No-op if the chain is gone. */
+export function setChainColor(chains: ChainMap, chainId: string, color: string): ChainMap {
+  if (!chains[chainId]) return chains;
+  const next = clone(chains);
+  next[chainId].color = color;
+  return next;
 }
 
 // ---- Display names (cosmetic; never touch the Owlbear item) -----------------

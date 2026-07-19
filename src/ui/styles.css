@@ -194,6 +194,60 @@ kbd {
   flex: none;
 }
 
+/* Chain highlight-colour swatch (header) and the picker swatches. */
+.swatch {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 1px solid var(--ik-border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.swatch:hover {
+  border-color: var(--ik-text);
+}
+
+.swatch.active {
+  outline: 2px solid var(--ik-text);
+  outline-offset: 1px;
+}
+
+/* Palette popout under the header: preset swatches + a custom-colour input. */
+.palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 2px 8px;
+}
+
+/* The custom-colour swatch wraps a native colour input, hidden but clickable. */
+.swatch.custom {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: conic-gradient(red, orange, yellow, lime, cyan, blue, magenta, red);
+}
+
+.swatch.custom input[type="color"] {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: none;
+  opacity: 0;
+  cursor: pointer;
+}
+
+/* The highlighted chain's name reads in the accent so it's clear which is live. */
+.chain-title-btn.highlighted .chain-title {
+  color: var(--ik-primary);
+}
+
 /* Borderless caret used to collapse/expand a chain card or a token row. */
 .caret-btn {
   flex: none;

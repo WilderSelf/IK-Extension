@@ -6,6 +6,13 @@ export const MODE_POSE = `${ID}/pose`;
 export const CTX_REMOVE = `${ID}/remove`;
 
 /**
+ * Tool-activation hotkey (a single Owlbear tool `shortcut`). Chosen to avoid
+ * Owlbear's built-in tool keys (W/F/D/M/Q/N) and fog/draw sub-mode keys; a bare
+ * letter is never a browser shortcut. Displayed as one letter to the user.
+ */
+export const POSE_SHORTCUT = "K";
+
+/**
  * Resolve a bundled public asset (icon SVG) against the site's base path.
  * Owlbear loads tool/menu icons by URL relative to the site origin, so on a
  * GitHub Pages project site (served from `/IK-Extension/`) a bare `/icon.svg`

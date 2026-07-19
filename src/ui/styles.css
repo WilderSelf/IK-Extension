@@ -108,6 +108,16 @@ input:focus-visible,
   font-style: italic;
 }
 
+kbd {
+  font: inherit;
+  font-size: 0.85em;
+  padding: 0 5px;
+  border: 1px solid var(--ik-border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--ik-hover);
+}
+
 .chain {
   border: 1px solid var(--ik-border);
   border-radius: 8px;

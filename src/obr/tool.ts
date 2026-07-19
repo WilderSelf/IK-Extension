@@ -5,7 +5,7 @@ import OBR, {
 } from "@owlbear-rodeo/sdk";
 import { type Chain, type Vec2, DEFAULT_ROTATION_OFFSET_DEG } from "../types";
 import { type Pose, rigidTranslate, solvePose } from "../ik/pose";
-import { MODE_POSE, TOOL_ID, asset } from "./constants";
+import { MODE_POSE, POSE_SHORTCUT, TOOL_ID, asset } from "./constants";
 import { findChainForToken, getChains } from "./chainStore";
 import { getPositions, radToObrDeg } from "./scene";
 import { dist } from "../ik/vec";
@@ -190,6 +190,12 @@ export async function setupTool(): Promise<void> {
     id: TOOL_ID,
     icons: [{ icon: asset("icon.svg"), label: "IK Chains", filter: { roles: ["GM"] } }],
     defaultMode: MODE_POSE,
+    // Tool-activation hotkey so you can jump straight to posing without hunting
+    // the toolbar. "K" is deliberately clear of Owlbear's built-in tool keys
+    // (W/F/D/M/Q/N) and of its fog/draw sub-mode keys; a bare letter is never a
+    // browser shortcut (those need Ctrl/Cmd/Alt). Owlbear surfaces the key in
+    // the tool's tooltip. If you ever hit a conflict, change this one letter.
+    shortcut: POSE_SHORTCUT,
   });
 
   await OBR.tool.createMode({

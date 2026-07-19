@@ -1,14 +1,11 @@
 import { describe, it, expect } from "vitest";
 import type { Vec2 } from "../types";
 import {
-  captureSegments,
-  defaultJointParams,
-  deriveJoints,
+  captureSegData,
+  deriveMidpointJoints,
   jointAngles,
-  jointParamFromWorld,
   reconstructJoints,
   seatTokens,
-  segmentAngles,
   solveSegmentJoints,
 } from "./segment";
 import { dist } from "./vec";
@@ -17,158 +14,128 @@ const v = (x: number, y: number): Vec2 => ({ x, y });
 
 // A straight horizontal arm: three equal segments, centres 10 apart.
 const arm = (): Vec2[] => [v(0, 0), v(10, 0), v(20, 0)];
+const flat = (n: number): number[] => Array.from({ length: n }, () => 0);
 
-describe("deriveJoints", () => {
+describe("deriveMidpointJoints", () => {
   it("puts interior joints at midpoints and reflects the ends outward", () => {
     // centres 0,10,20 → mids 5,15 → ends -5 and 25.
-    expect(deriveJoints(arm()).map((p) => p.x)).toEqual([-5, 5, 15, 25]);
+    expect(deriveMidpointJoints(arm()).map((p) => p.x)).toEqual([-5, 5, 15, 25]);
   });
 
   it("returns a degenerate segment for a lone root", () => {
-    expect(deriveJoints([v(3, 4)])).toEqual([v(3, 4), v(3, 4)]);
+    expect(deriveMidpointJoints([v(3, 4)])).toEqual([v(3, 4), v(3, 4)]);
   });
 });
 
-describe("captureSegments", () => {
+describe("captureSegData", () => {
   it("captures equal lengths and centred seats for an even arm", () => {
-    const seg = captureSegments(arm());
+    const seg = captureSegData(arm(), flat(3), deriveMidpointJoints(arm()));
     expect(seg.map((s) => s.len)).toEqual([10, 10, 10]);
     for (const s of seg) {
       expect(s.seatAlong).toBeCloseTo(0.5, 9);
       expect(s.seatPerp).toBeCloseTo(0, 9);
+      expect(s.offsetDeg).toBeCloseTo(0, 9);
     }
-  });
-
-  it("round-trips: seatTokens(captured joints) reproduces the centres", () => {
-    const centres = arm();
-    const seg = captureSegments(centres);
-    const seated = seatTokens(deriveJoints(centres), seg);
-    seated.forEach((c, i) => {
-      expect(c.x).toBeCloseTo(centres[i].x, 9);
-      expect(c.y).toBeCloseTo(centres[i].y, 9);
-    });
   });
 });
 
-describe("adjustable joint pivots", () => {
-  it("default params reconstruct the auto-derived joints", () => {
+describe("reconstructJoints", () => {
+  it("round-trips: reconstructing from captured seg reproduces the rest joints", () => {
     const centres = arm();
-    expect(reconstructJoints(centres, defaultJointParams(3))).toEqual(deriveJoints(centres));
+    const joints = deriveMidpointJoints(centres);
+    const seg = captureSegData(centres, flat(3), joints);
+    reconstructJoints(centres, flat(3), seg).forEach((j, i) => {
+      expect(j.x).toBeCloseTo(joints[i].x, 9);
+      expect(j.y).toBeCloseTo(joints[i].y, 9);
+    });
   });
 
-  it("a dragged joint round-trips through its param and back to that position", () => {
+  it("seatTokens round-trips the centres from the captured joints", () => {
     const centres = arm();
-    // Drag the shoulder (joint 0) to an arbitrary spot off the bone axis.
-    const target = v(-3, 4);
-    const param = jointParamFromWorld(centres, 0, target);
-    const params = defaultJointParams(3);
-    params[0] = param;
-    const joints = reconstructJoints(centres, params);
-    expect(joints[0].x).toBeCloseTo(target.x, 9);
-    expect(joints[0].y).toBeCloseTo(target.y, 9);
-    // Untouched joints keep their auto positions.
-    expect(joints[1].x).toBeCloseTo(5, 9);
-  });
-
-  it("a custom pivot follows the tokens: same params → moved centres → moved joint", () => {
-    const centres = arm();
-    const params = defaultJointParams(3);
-    params[0] = jointParamFromWorld(centres, 0, v(-3, 4)); // shoulder offset by (-3,4) from... relative
-    const before = reconstructJoints(centres, params)[0];
-    // Translate the whole arm by (100, 50); the custom joint should translate too.
-    const moved = centres.map((c) => v(c.x + 100, c.y + 50));
-    const after = reconstructJoints(moved, params)[0];
-    expect(after.x).toBeCloseTo(before.x + 100, 6);
-    expect(after.y).toBeCloseTo(before.y + 50, 6);
-  });
-
-  it("seats correctly with a perpendicular custom pivot (round-trip holds)", () => {
-    // Give a joint a perpendicular offset, then confirm capture→seat reproduces centres.
-    const centres = arm();
-    const params = defaultJointParams(3);
-    params[1] = { along: 0.5, perp: 0.3 }; // elbow pushed off-axis
-    const seg = captureSegments(centres, params);
-    const seated = seatTokens(reconstructJoints(centres, params), seg);
-    seated.forEach((c, i) => {
+    const seg = captureSegData(centres, flat(3), deriveMidpointJoints(centres));
+    seatTokens(deriveMidpointJoints(centres), seg).forEach((c, i) => {
       expect(c.x).toBeCloseTo(centres[i].x, 9);
       expect(c.y).toBeCloseTo(centres[i].y, 9);
     });
+  });
+
+  it("NO WANDER: joints follow a rigid move of the whole rig exactly", () => {
+    // Capture at rest, then rigidly rotate + translate every token (centres AND
+    // rotations). The reconstructed joints must be the rest joints under the SAME
+    // rigid transform — i.e. locked to the rig, not drifting.
+    const centres = arm();
+    const restJoints = deriveMidpointJoints(centres);
+    const seg = captureSegData(centres, flat(3), restJoints);
+
+    const phi = 0.7; // radians
+    const T = v(37, -12);
+    const c = Math.cos(phi);
+    const s = Math.sin(phi);
+    const R = (p: Vec2): Vec2 => v(p.x * c - p.y * s + T.x, p.x * s + p.y * c + T.y);
+    const movedCentres = centres.map(R);
+    const movedRot = flat(3).map((r) => r + (phi * 180) / Math.PI); // each token turned by phi
+
+    const got = reconstructJoints(movedCentres, movedRot, seg);
+    restJoints.forEach((j, i) => {
+      const want = R(j);
+      expect(got[i].x).toBeCloseTo(want.x, 6);
+      expect(got[i].y).toBeCloseTo(want.y, 6);
+    });
+  });
+
+  it("a custom (dragged) joint also follows a rigid move", () => {
+    const centres = arm();
+    const joints = deriveMidpointJoints(centres);
+    joints[0] = v(-3, 4); // drag the shoulder off-axis
+    const seg = captureSegData(centres, flat(3), joints);
+    // At rest, reconstruction reproduces the custom joint…
+    expect(reconstructJoints(centres, flat(3), seg)[0].x).toBeCloseTo(-3, 6);
+    // …and it tracks a rigid move rather than snapping back to a midpoint.
+    const moved = centres.map((p) => v(p.x + 100, p.y + 50));
+    const got = reconstructJoints(moved, flat(3), seg)[0];
+    expect(got.x).toBeCloseTo(-3 + 100, 6);
+    expect(got.y).toBeCloseTo(4 + 50, 6);
   });
 });
 
 describe("solveSegmentJoints", () => {
+  const seg = () => captureSegData(arm(), flat(3), deriveMidpointJoints(arm()));
+
   it("keeps the ROOT joint (shoulder) pinned when the tip is posed", () => {
-    const centres = arm();
-    const seg = captureSegments(centres);
-    const rootJoint = deriveJoints(centres)[0];
-    const joints = solveSegmentJoints(centres, seg, 2, v(0, 25));
-    // The shoulder must not move — that was the whole bug (it used to drift).
+    const rootJoint = deriveMidpointJoints(arm())[0];
+    const joints = solveSegmentJoints(arm(), flat(3), seg(), 2, v(0, 25));
     expect(joints[0].x).toBeCloseTo(rootJoint.x, 6);
     expect(joints[0].y).toBeCloseTo(rootJoint.y, 6);
   });
 
   it("preserves every segment length (the arm never stretches)", () => {
-    const centres = arm();
-    const seg = captureSegments(centres);
-    const joints = solveSegmentJoints(centres, seg, 2, v(6, 18));
+    const s = seg();
+    const joints = solveSegmentJoints(arm(), flat(3), s, 2, v(6, 18));
     for (let i = 0; i + 1 < joints.length; i++) {
-      expect(dist(joints[i], joints[i + 1])).toBeCloseTo(seg[i].len, 4);
+      expect(dist(joints[i], joints[i + 1])).toBeCloseTo(s[i].len, 4);
     }
   });
 
   it("drives the grabbed token's distal joint onto a reachable target", () => {
-    const centres = arm();
-    const seg = captureSegments(centres);
     const target = v(6, 12);
-    const joints = solveSegmentJoints(centres, seg, 2, target); // grab tip → effector = last joint
+    const joints = solveSegmentJoints(arm(), flat(3), seg(), 2, target); // grab tip
     expect(dist(joints[joints.length - 1], target)).toBeLessThan(0.5);
   });
 
-  it("re-seated segments sit correctly within their (shared) joints", () => {
-    const centres = arm();
-    const seg = captureSegments(centres);
-    const joints = solveSegmentJoints(centres, seg, 2, v(4, 16));
-    const seated = seatTokens(joints, seg);
-    // Segment i spans joints[i]→joints[i+1]; segment i+1 spans joints[i+1]→…, so
-    // they share joints[i+1] by construction (continuity). Each seated centre sits
-    // in its segment's frame at the captured (along, perp).
-    for (let i = 0; i < seated.length; i++) {
-      const a = joints[i];
-      const b = joints[i + 1];
-      const dx = b.x - a.x;
-      const dy = b.y - a.y;
-      const expected = {
-        x: a.x + dx * seg[i].seatAlong - dy * seg[i].seatPerp,
-        y: a.y + dy * seg[i].seatAlong + dx * seg[i].seatPerp,
-      };
-      expect(seated[i].x).toBeCloseTo(expected.x, 9);
-      expect(seated[i].y).toBeCloseTo(expected.y, 9);
-    }
-  });
-
   it("carries joints past a mid-grab rigidly (tip trails)", () => {
-    const centres = arm();
-    const seg = captureSegments(centres);
-    // Grab the middle token (index 1): its distal joint reaches; the last joint
-    // past the effector is carried, so the final segment keeps its length.
-    const joints = solveSegmentJoints(centres, seg, 1, v(5, 8));
-    expect(dist(joints[2], joints[3])).toBeCloseTo(seg[2].len, 4);
+    const s = seg();
+    const joints = solveSegmentJoints(arm(), flat(3), s, 1, v(5, 8));
+    expect(dist(joints[2], joints[3])).toBeCloseTo(s[2].len, 4);
   });
 
   it("no-ops when the root is grabbed (caller translates instead)", () => {
-    const centres = arm();
-    const seg = captureSegments(centres);
-    expect(solveSegmentJoints(centres, seg, 0, v(99, 99))).toEqual(deriveJoints(centres));
+    expect(solveSegmentJoints(arm(), flat(3), seg(), 0, v(99, 99)))
+      .toEqual(reconstructJoints(arm(), flat(3), seg()));
   });
 });
 
-describe("segmentAngles / jointAngles", () => {
+describe("jointAngles", () => {
   it("is zero along a straight +x arm", () => {
-    for (const a of segmentAngles(arm())) expect(a).toBeCloseTo(0, 9);
-  });
-
-  it("matches jointAngles on the derived joints", () => {
-    const centres = arm();
-    expect(segmentAngles(centres)).toEqual(jointAngles(deriveJoints(centres)));
+    for (const a of jointAngles(deriveMidpointJoints(arm()))) expect(a).toBeCloseTo(0, 9);
   });
 });

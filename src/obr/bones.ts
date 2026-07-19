@@ -2,7 +2,7 @@ import OBR, { buildLine, buildShape, type Item } from "@owlbear-rodeo/sdk";
 import { type Chain, type ChainMap, type Vec2 } from "../types";
 import { BONES_META } from "./constants";
 import { getChains, isSegmentRig, orderedNodes } from "./chainStore";
-import { getPositions } from "./scene";
+import { getPositions, getRotations } from "./scene";
 import { reconstructJoints } from "../ik/segment";
 import { dist } from "../ik/vec";
 
@@ -86,20 +86,28 @@ export function clearBones(): Promise<void> {
  * A chain's segment-rig JOINTS (world positions, N+1 of them), or `null` if it's
  * not a segment rig or a token position is missing. These are the draggable pivots.
  */
-export function segmentJoints(chain: Chain, positions: Record<string, Vec2>): Vec2[] | null {
+export function segmentJoints(
+  chain: Chain,
+  positions: Record<string, Vec2>,
+  rotations: Record<string, number>,
+): Vec2[] | null {
   if (!isSegmentRig(chain)) return null;
-  const centres = orderedNodes(chain).map((id) => positions[id]);
+  const order = orderedNodes(chain);
+  const centres = order.map((id) => positions[id]);
   if (centres.some((c) => !c)) return null;
-  return reconstructJoints(centres as Vec2[], chain.pivots);
+  const seg = order.map((id) => chain.nodes[id].seg!);
+  const rot = order.map((id) => rotations[id] ?? 0);
+  return reconstructJoints(centres as Vec2[], rot, seg);
 }
 
 /** The skeleton to draw for one chain: dots (with the root flagged) + bone segments. */
 function skeletonOf(
   chain: Chain,
   positions: Record<string, Vec2>,
+  rotations: Record<string, number>,
   override?: JointOverride,
 ): { dots: { p: Vec2; root: boolean }[]; bones: [Vec2, Vec2][] } {
-  const joints = segmentJoints(chain, positions);
+  const joints = segmentJoints(chain, positions, rotations);
   if (joints) {
     if (override && override.chainId === chain.id && override.jointIndex < joints.length) {
       joints[override.jointIndex] = override.world;
@@ -121,9 +129,15 @@ function skeletonOf(
   return { dots, bones };
 }
 
-function boneShapes(chain: Chain, positions: Record<string, Vec2>, d: number, override?: JointOverride): Item[] {
+function boneShapes(
+  chain: Chain,
+  positions: Record<string, Vec2>,
+  rotations: Record<string, number>,
+  d: number,
+  override?: JointOverride,
+): Item[] {
   const color = chain.color ?? NEUTRAL;
-  const { dots, bones } = skeletonOf(chain, positions, override);
+  const { dots, bones } = skeletonOf(chain, positions, rotations, override);
   const items: Item[] = [];
   // Bones first so the joint dots sit on top of the line ends.
   for (const [a, b] of bones) {
@@ -167,6 +181,7 @@ function boneShapes(chain: Chain, positions: Record<string, Vec2>, d: number, ov
 async function drawFrom(
   chains: ChainMap,
   positions: Record<string, Vec2>,
+  rotations: Record<string, number>,
   override?: JointOverride,
 ): Promise<void> {
   await removeAll();
@@ -174,7 +189,7 @@ async function drawFrom(
   const list = Object.values(chains);
   if (list.length === 0) return;
   const d = await gridDpi();
-  const items = list.flatMap((c) => boneShapes(c, positions, d, override));
+  const items = list.flatMap((c) => boneShapes(c, positions, rotations, d, override));
   if (items.length) await OBR.scene.local.addItems(items);
 }
 
@@ -187,22 +202,25 @@ export function refreshBones(): Promise<void> {
   return serialize(async () => {
     const chains = await getChains();
     const allIds = [...new Set(Object.values(chains).flatMap((c) => Object.keys(c.nodes)))];
-    const positions = allIds.length ? await getPositions(allIds) : {};
-    await drawFrom(chains, positions, undefined);
+    const [positions, rotations] = allIds.length
+      ? await Promise.all([getPositions(allIds), getRotations(allIds)])
+      : [{}, {}];
+    await drawFrom(chains, positions, rotations, undefined);
   });
 }
 
 /**
- * Redraw the overlay from CACHED chains + positions with one joint overridden —
+ * Redraw the overlay from CACHED chains + transforms with one joint overridden —
  * used for live feedback while a pivot is dragged, without re-reading the scene
  * every pointer move.
  */
 export function previewBones(
   chains: ChainMap,
   positions: Record<string, Vec2>,
+  rotations: Record<string, number>,
   override: JointOverride,
 ): Promise<void> {
-  return serialize(() => drawFrom(chains, positions, override));
+  return serialize(() => drawFrom(chains, positions, rotations, override));
 }
 
 /**
@@ -212,12 +230,13 @@ export function previewBones(
 export function findNearestJoint(
   chains: ChainMap,
   positions: Record<string, Vec2>,
+  rotations: Record<string, number>,
   pointer: Vec2,
   maxDist: number,
 ): { chainId: string; jointIndex: number; world: Vec2 } | null {
   let best: { chainId: string; jointIndex: number; world: Vec2; d: number } | null = null;
   for (const chain of Object.values(chains)) {
-    const joints = segmentJoints(chain, positions);
+    const joints = segmentJoints(chain, positions, rotations);
     if (!joints) continue;
     for (let i = 0; i < joints.length; i++) {
       const dd = dist(joints[i], pointer);

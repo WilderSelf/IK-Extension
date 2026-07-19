@@ -37,6 +37,8 @@ interface DragState {
   /** token id -> the involved chain that owns it (for per-chain auto-rotate). */
   tokenChainId: Record<string, string>;
   basePositions: Record<string, Vec2>;
+  /** Pre-drag token rotations (deg) — a segment rig reconstructs joints from these. */
+  baseRotations: Record<string, number>;
   startPointer: Vec2;
   ids: string[];
   update: InteractionUpdate;
@@ -53,6 +55,7 @@ interface PivotDrag {
   jointIndex: number;
   chains: ChainMap;
   positions: Record<string, Vec2>;
+  rotations: Record<string, number>;
 }
 let pivotDrag: PivotDrag | null = null;
 
@@ -98,7 +101,7 @@ function computePose(state: DragState, pointer: Vec2): Pose {
     const target = base ? { x: base.x + delta.x, y: base.y + delta.y } : pointer;
     grab = { mode: "solve", grabbedId: state.grabbedId, target };
   }
-  return poseRig(state.involved, state.posedChainId, state.basePositions, grab);
+  return poseRig(state.involved, state.posedChainId, state.basePositions, grab, undefined, state.baseRotations);
 }
 
 function applyPose(state: DragState, pose: Pose, items: Item[]): void {
@@ -142,10 +145,10 @@ async function startPivotDrag(event: ToolEvent): Promise<void> {
   const chains = await getChains();
   const ids = [...new Set(Object.values(chains).flatMap((c) => Object.keys(c.nodes)))];
   if (ids.length === 0) return;
-  const positions = await getPositions(ids);
-  const hit = findNearestJoint(chains, positions, event.pointerPosition, JOINT_GRAB_RADIUS);
+  const [positions, rotations] = await Promise.all([getPositions(ids), getRotations(ids)]);
+  const hit = findNearestJoint(chains, positions, rotations, event.pointerPosition, JOINT_GRAB_RADIUS);
   if (!hit || cancelledDuringStart) return;
-  pivotDrag = { chainId: hit.chainId, jointIndex: hit.jointIndex, chains, positions };
+  pivotDrag = { chainId: hit.chainId, jointIndex: hit.jointIndex, chains, positions, rotations };
 }
 
 async function onPoseDragStart(_ctx: ToolContext, event: ToolEvent): Promise<void> {
@@ -190,7 +193,11 @@ async function onPoseDragStart(_ctx: ToolContext, event: ToolEvent): Promise<voi
     const ids = [...idSet];
     const items = await OBR.scene.items.getItems((i) => idSet.has(i.id));
     const basePositions: Record<string, Vec2> = {};
-    for (const it of items) basePositions[it.id] = { x: it.position.x, y: it.position.y };
+    const baseRotations: Record<string, number> = {};
+    for (const it of items) {
+      basePositions[it.id] = { x: it.position.x, y: it.position.y };
+      baseRotations[it.id] = it.rotation;
+    }
 
     const [update, stop] = (await OBR.interaction.startItemInteraction(items)) as [
       InteractionUpdate,
@@ -211,6 +218,7 @@ async function onPoseDragStart(_ctx: ToolContext, event: ToolEvent): Promise<voi
       grabbedId,
       tokenChainId,
       basePositions,
+      baseRotations,
       startPointer: { x: event.pointerPosition.x, y: event.pointerPosition.y },
       ids,
       update,
@@ -224,7 +232,7 @@ async function onPoseDragStart(_ctx: ToolContext, event: ToolEvent): Promise<voi
 function onPoseDragMove(_ctx: ToolContext, event: ToolEvent): void {
   if (pivotDrag) {
     // Live feedback: redraw the overlay with this joint following the pointer.
-    previewBones(pivotDrag.chains, pivotDrag.positions, {
+    previewBones(pivotDrag.chains, pivotDrag.positions, pivotDrag.rotations, {
       chainId: pivotDrag.chainId,
       jointIndex: pivotDrag.jointIndex,
       world: event.pointerPosition,

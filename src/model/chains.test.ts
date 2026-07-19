@@ -110,17 +110,15 @@ describe("segment rig (limb mode)", () => {
     expect(enableSegmentRig(map, id, { R: { x: 0, y: 0 } }, ROT)).toBe(map);
   });
 
-  it("setJointPivot moves a joint (stores pivots) and recaptures rest data", () => {
+  it("setJointPivot moves a joint (recaptures the adjacent segment) rigidly", () => {
     const [map0, id] = armChain();
     const map = enableSegmentRig(map0, id, POS, ROT);
-    expect(map[id].pivots).toBeUndefined(); // auto joints until adjusted
-    // Drag joint 0 (shoulder) from its auto spot (-5,0) to (-8,0): the root
-    // segment (joint0→joint1=5) is now longer, so R.seg.len grows.
+    expect(map[id].nodes.R.seg!.len).toBeCloseTo(10, 6); // auto midpoint joints
+    // Drag joint 0 (shoulder) from its auto spot (-5,0) to (-8,0): joint 1 stays
+    // at 5, so the root segment grows to |5 − (−8)| = 13 …
     const next = setJointPivot(map, id, 0, { x: -8, y: 0 }, POS, ROT);
-    expect(next[id].pivots).toBeDefined();
-    expect(next[id].pivots!.length).toBe(4); // N+1 joints for 3 tokens
-    expect(next[id].nodes.R.seg!.len).toBeCloseTo(13, 6); // -8 → 5
-    // Untouched interior joint keeps the auto midpoint length.
+    expect(next[id].nodes.R.seg!.len).toBeCloseTo(13, 6);
+    // … while an untouched interior segment keeps its length.
     expect(next[id].nodes.A.seg!.len).toBeCloseTo(10, 6);
   });
 
@@ -133,7 +131,6 @@ describe("segment rig (limb mode)", () => {
     const [map0, id] = armChain();
     const map = setJointPivot(enableSegmentRig(map0, id, POS, ROT), id, 0, { x: -8, y: 0 }, POS, ROT);
     const reset = resetJointPivots(map, id, POS, ROT);
-    expect(reset[id].pivots).toBeUndefined();
     expect(reset[id].nodes.R.seg!.len).toBeCloseTo(10, 6); // back to auto
   });
 });

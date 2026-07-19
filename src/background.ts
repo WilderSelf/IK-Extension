@@ -3,7 +3,6 @@ import type { ChainMap } from "./types";
 import { setupTool } from "./obr/tool";
 import { setupContextMenu } from "./obr/contextMenu";
 import { getChains, onChainsChange, pruneMissing, saveChains } from "./obr/chainStore";
-import { refreshConnectors } from "./obr/connectors";
 
 // Cached copy of the chain map, kept current via onChainsChange, so the
 // high-frequency items.onChange handler never has to fetch scene metadata.
@@ -22,7 +21,7 @@ function hasMissingToken(chains: ChainMap, existing: Set<string>): boolean {
 }
 
 OBR.onReady(async () => {
-  // Register the toolbar tool and context-menu entries (scene-independent).
+  // Register the toolbar tool and context menu (scene-independent).
   await Promise.all([setupTool(), setupContextMenu()]);
 
   // Track GM status so only one client owns pruning.
@@ -33,7 +32,6 @@ OBR.onReady(async () => {
   getChains().then((c) => (cachedChains = c)).catch(() => {});
   onChainsChange((chains) => {
     cachedChains = chains;
-    refreshConnectors().catch(() => {});
   });
 
   // Prune chains that reference deleted tokens. Fast path: skip entirely unless
@@ -53,16 +51,8 @@ OBR.onReady(async () => {
     saveChains(pruned).catch(() => {});
   });
 
-  // Initial overlay pass once a scene is ready.
-  try {
-    if (await OBR.scene.isReady()) await refreshConnectors();
-  } catch {
-    /* no active scene yet */
-  }
+  // Re-seed the cache whenever a scene becomes ready (e.g. after a switch).
   OBR.scene.onReadyChange((ready) => {
-    if (ready) {
-      getChains().then((c) => (cachedChains = c)).catch(() => {});
-      refreshConnectors().catch(() => {});
-    }
+    if (ready) getChains().then((c) => (cachedChains = c)).catch(() => {});
   });
 });

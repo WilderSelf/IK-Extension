@@ -3,32 +3,20 @@ import OBR, {
   type ToolContext,
   type ToolEvent,
 } from "@owlbear-rodeo/sdk";
-import { type Chain, type ChainMap, type Vec2, DEFAULT_ROTATION_OFFSET_DEG } from "../types";
-import {
-  type Pose,
-  rigidTranslate,
-  solvePose,
-} from "../ik/pose";
-import { shallowestSelectedPerBranch } from "../ik/tree";
-import {
-  MODE_BUILD,
-  MODE_CONSTRAIN,
-  MODE_POSE,
-  TOOL_ID,
-  asset,
-} from "./constants";
-import {
-  onConstrainClick,
-  onConstrainDragCancel,
-  onConstrainDragEnd,
-  onConstrainDragMove,
-  onConstrainDragStart,
-  onConstrainDeactivate,
-} from "./bendPicker";
-import { findChainForToken, getChains, saveChains, createChain, addNode } from "./chainStore";
-import { getPositions, isToken, radToObrDeg } from "./scene";
-import { refreshConnectors } from "./connectors";
-import { angle, dist } from "../ik/vec";
+import { type Chain, type Vec2, DEFAULT_ROTATION_OFFSET_DEG } from "../types";
+import { type Pose, rigidTranslate, solvePose } from "../ik/pose";
+import { MODE_POSE, TOOL_ID, asset } from "./constants";
+import { findChainForToken, getChains } from "./chainStore";
+import { getPositions, radToObrDeg } from "./scene";
+import { dist } from "../ik/vec";
+
+/**
+ * The extension's single canvas tool. It has ONE mode (Pose) because Owlbear
+ * routes drag events only to a tool — there is no other way to intercept a
+ * token drag for real-time solving. Building and every other control live in
+ * the action popover + the right-click menu, so nothing else clutters the
+ * top-center toolbar (where Owlbear's own messaging renders).
+ */
 
 /** Max distance (scene units) to associate a pointer with a chained token. */
 const GRAB_RADIUS = 300;
@@ -39,52 +27,22 @@ type InteractionStop = () => void;
 interface DragState {
   chain: Chain;
   mode: "translate" | "solve";
-  targetIds: string[];
+  grabbedId: string;
   basePositions: Record<string, Vec2>;
   startPointer: Vec2;
   ids: string[];
   update: InteractionUpdate;
   stop: InteractionStop;
   autoRotate: boolean;
-  rotationOffsetDeg: number;
 }
 
 let drag: DragState | null = null;
 
 // True while onPoseDragStart is awaiting async setup. If the drag is ended or
 // cancelled during that window, `cancelledDuringStart` tells setup to tear the
-// interaction down immediately instead of leaking it.
+// interaction down immediately instead of leaking it for ~30s.
 let starting = false;
 let cancelledDuringStart = false;
-
-// ---- Build-mode state ------------------------------------------------------
-
-// In-memory working copy of the chain map for the current build session. It is
-// updated synchronously on each click so rapid clicks don't read stale scene
-// metadata (OBR set/getMetadata is async with propagation latency).
-let buildWorking: ChainMap | null = null;
-let buildChainId: string | null = null;
-let buildLastNodeId: string | null = null;
-
-// ---- Permissions -----------------------------------------------------------
-
-function canMoveNode(chain: Chain, role: "GM" | "PLAYER", id: string): boolean {
-  if (role === "GM") return true;
-  const ov = chain.settings.nodeOverrides?.[id];
-  if (ov?.locked) return false;
-  if (ov?.playerMovable === false) return false;
-  // The root/anchor is off-limits to players unless explicitly enabled.
-  if (id === chain.rootId && ov?.playerMovable !== true) return false;
-  return chain.settings.playerPosable;
-}
-
-function canPose(chain: Chain, role: "GM" | "PLAYER", grabbedId: string): boolean {
-  if (role === "GM") return true;
-  if (!chain.settings.playerPosable) return false;
-  return canMoveNode(chain, role, grabbedId);
-}
-
-// ---- Pose mode -------------------------------------------------------------
 
 async function resolveGrabbed(
   event: ToolEvent,
@@ -95,7 +53,8 @@ async function resolveGrabbed(
     const chain = findChainForToken(chains, targetId);
     if (chain) return { chain, grabbedId: targetId };
   }
-  // Fallback: nearest chained token to the pointer, within GRAB_RADIUS.
+  // Fallback: nearest chained token to the pointer, within GRAB_RADIUS. Only
+  // used on a pointer *miss*; a direct hit resolves the exact token above.
   const ids = Object.values(chains).flatMap((c) => Object.keys(c.nodes));
   if (ids.length === 0) return null;
   const positions = await getPositions(ids);
@@ -116,12 +75,9 @@ function computePose(state: DragState, pointer: Vec2): Pose {
   if (state.mode === "translate") {
     return rigidTranslate(state.chain, state.basePositions, delta);
   }
-  const targets: Record<string, Vec2> = {};
-  for (const id of state.targetIds) {
-    const b = state.basePositions[id];
-    if (b) targets[id] = { x: b.x + delta.x, y: b.y + delta.y };
-  }
-  return solvePose(state.chain, state.basePositions, targets);
+  const base = state.basePositions[state.grabbedId];
+  const target = base ? { x: base.x + delta.x, y: base.y + delta.y } : pointer;
+  return solvePose(state.chain, state.basePositions, state.grabbedId, target);
 }
 
 function applyPose(state: DragState, pose: Pose, items: Item[]): void {
@@ -137,11 +93,13 @@ function applyPose(state: DragState, pose: Pose, items: Item[]): void {
       item.id !== state.chain.rootId &&
       pose.rotations[item.id] !== undefined
     ) {
-      // Prefer the per-node authored offset (captured at build/recalibrate); fall
-      // back to the chain's global offset for legacy nodes that never captured one.
-      const off = state.chain.nodes[item.id]?.boneOffsetDeg ?? state.rotationOffsetDeg;
+      // Prefer the per-node authored offset (captured at build); fall back to
+      // the global default for a node that somehow never captured one.
+      const off = state.chain.nodes[item.id]?.boneOffsetDeg ?? DEFAULT_ROTATION_OFFSET_DEG;
       item.rotation = radToObrDeg(pose.rotations[item.id], off);
     }
+    // Note: we read/write position + rotation only, never `scale`, so a token's
+    // negative-scale flip survives posing untouched.
   }
 }
 
@@ -150,28 +108,14 @@ async function onPoseDragStart(_ctx: ToolContext, event: ToolEvent): Promise<voi
   starting = true;
   cancelledDuringStart = false;
   try {
+    // GM-only: players never pose (safe default; the tool icon is GM-filtered
+    // too, so a player never even sees it).
+    if ((await OBR.player.getRole()) !== "GM") return;
+
     const grabbed = await resolveGrabbed(event);
     if (!grabbed) return;
     const { chain, grabbedId } = grabbed;
-
-    const role = await OBR.player.getRole();
-    if (!canPose(chain, role, grabbedId)) return;
-
-    let mode: "translate" | "solve";
-    let targetIds: string[] = [];
-    if (grabbedId === chain.rootId) {
-      mode = "translate";
-    } else {
-      mode = "solve";
-      const selection = (await OBR.player.getSelection()) ?? [];
-      const inChain = selection.filter((id) => id in chain.nodes);
-      targetIds =
-        inChain.length > 1 && inChain.includes(grabbedId)
-          ? shallowestSelectedPerBranch(chain, inChain)
-          : [grabbedId];
-      targetIds = targetIds.filter((id) => canMoveNode(chain, role, id));
-      if (targetIds.length === 0) return;
-    }
+    const mode: "translate" | "solve" = grabbedId === chain.rootId ? "translate" : "solve";
 
     const ids = Object.keys(chain.nodes);
     const idSet = new Set(ids);
@@ -184,8 +128,8 @@ async function onPoseDragStart(_ctx: ToolContext, event: ToolEvent): Promise<voi
       InteractionStop,
     ];
 
-    // The drag was ended/cancelled while we were setting up — tear the
-    // interaction down now rather than leaving it live for 30s.
+    // The drag ended/cancelled while we were setting up — tear the interaction
+    // down now rather than leaving it live.
     if (cancelledDuringStart) {
       stop();
       return;
@@ -194,14 +138,13 @@ async function onPoseDragStart(_ctx: ToolContext, event: ToolEvent): Promise<voi
     drag = {
       chain,
       mode,
-      targetIds,
+      grabbedId,
       basePositions,
       startPointer: { x: event.pointerPosition.x, y: event.pointerPosition.y },
       ids,
       update,
       stop,
       autoRotate: chain.settings.autoRotate,
-      rotationOffsetDeg: chain.settings.rotationOffsetDeg ?? DEFAULT_ROTATION_OFFSET_DEG,
     };
   } finally {
     starting = false;
@@ -216,8 +159,8 @@ function onPoseDragMove(_ctx: ToolContext, event: ToolEvent): void {
 }
 
 async function onPoseDragEnd(_ctx: ToolContext, event: ToolEvent): Promise<void> {
-  // Drag ended before setup finished: there's nothing to commit, so treat it
-  // as a cancel and let onPoseDragStart clean up the pending interaction.
+  // Drag ended before setup finished: nothing to commit, so treat it as a
+  // cancel and let onPoseDragStart clean up the pending interaction.
   if (starting) {
     cancelledDuringStart = true;
     return;
@@ -226,11 +169,9 @@ async function onPoseDragEnd(_ctx: ToolContext, event: ToolEvent): Promise<void>
   const state = drag;
   drag = null;
   const pose = computePose(state, event.pointerPosition);
-  // Persist final positions to the scene, then release the interaction.
+  // Persist final positions to the scene once, then release the interaction.
   await OBR.scene.items.updateItems(state.ids, (items) => applyPose(state, pose, items));
   state.stop();
-  // Update the connector overlay to match the new pose (no-op if disabled).
-  refreshConnectors().catch(() => {});
 }
 
 function onPoseDragCancel(): void {
@@ -244,103 +185,19 @@ function onPoseDragCancel(): void {
   drag = null;
 }
 
-// ---- Build mode ------------------------------------------------------------
-
-async function onBuildClick(_ctx: ToolContext, event: ToolEvent): Promise<void> {
-  const item = event.target;
-  if (!item || !isToken(item)) return;
-  const tokenId = item.id;
-
-  // Seed the working copy from the scene on the first click of a session, then
-  // keep operating on it in memory to avoid read-after-write races.
-  const chains = buildWorking ?? (await getChains());
-  const existing = findChainForToken(chains, tokenId);
-
-  // Clicking a token already in a chain re-anchors the build cursor there,
-  // so the next clicks branch off it.
-  if (existing) {
-    buildWorking = chains;
-    buildChainId = existing.id;
-    buildLastNodeId = tokenId;
-    return;
-  }
-
-  // No active chain (or the active one is gone): start a new chain here.
-  if (!buildChainId || !chains[buildChainId]) {
-    const [next, id] = createChain(chains, tokenId);
-    buildWorking = next;
-    buildChainId = id;
-    buildLastNodeId = tokenId;
-    await saveChains(next);
-    return;
-  }
-
-  // Link this token to the current build cursor. If the cursor node has since
-  // vanished from the chain (deleted in the sidebar mid-build), fall back to the
-  // root so we never parent a node to a token that no longer exists.
-  const activeChain = chains[buildChainId];
-  const parentId =
-    buildLastNodeId && buildLastNodeId in activeChain.nodes
-      ? buildLastNodeId
-      : activeChain.rootId;
-  const positions = await getPositions([tokenId, parentId]);
-  const restLength =
-    positions[tokenId] && positions[parentId]
-      ? dist(positions[parentId], positions[tokenId])
-      : 0;
-  // Capture how this token's art is rotated relative to its bone, so auto-rotate
-  // preserves the orientation instead of snapping to the global "points up"
-  // default. Same `angle` the solver uses, so the delta is convention-agnostic.
-  const boneOffsetDeg =
-    positions[tokenId] && positions[parentId]
-      ? item.rotation - (angle(positions[parentId], positions[tokenId]) * 180) / Math.PI
-      : undefined;
-  const next = addNode(chains, buildChainId, tokenId, parentId, restLength, boneOffsetDeg);
-  buildWorking = next;
-  buildLastNodeId = tokenId;
-  await saveChains(next);
-}
-
-function onBuildDeactivate(): void {
-  // Reset the build session so the next one re-seeds from the scene.
-  buildWorking = null;
-  buildChainId = null;
-  buildLastNodeId = null;
-}
-
-// ---- Registration ----------------------------------------------------------
-
 export async function setupTool(): Promise<void> {
   await OBR.tool.create({
     id: TOOL_ID,
-    icons: [{ icon: asset("icon.svg"), label: "IK Chains" }],
+    icons: [{ icon: asset("icon.svg"), label: "IK Chains", filter: { roles: ["GM"] } }],
     defaultMode: MODE_POSE,
   });
 
   await OBR.tool.createMode({
     id: MODE_POSE,
-    icons: [{ icon: asset("pose.svg"), label: "Pose chain" }],
+    icons: [{ icon: asset("pose.svg"), label: "Pose IK chain" }],
     onToolDragStart: onPoseDragStart,
     onToolDragMove: onPoseDragMove,
     onToolDragEnd: onPoseDragEnd,
     onToolDragCancel: onPoseDragCancel,
-  });
-
-  await OBR.tool.createMode({
-    id: MODE_BUILD,
-    icons: [{ icon: asset("build.svg"), label: "Build chain" }],
-    onToolClick: onBuildClick,
-    onDeactivate: onBuildDeactivate,
-  });
-
-  await OBR.tool.createMode({
-    id: MODE_CONSTRAIN,
-    icons: [{ icon: asset("constrain.svg"), label: "Limit bend" }],
-    onToolClick: onConstrainClick,
-    onToolDragStart: onConstrainDragStart,
-    onToolDragMove: onConstrainDragMove,
-    onToolDragEnd: onConstrainDragEnd,
-    onToolDragCancel: onConstrainDragCancel,
-    onDeactivate: onConstrainDeactivate,
   });
 }

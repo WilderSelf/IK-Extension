@@ -14,6 +14,8 @@ export {
   updateSettings,
   setNodeStiffness,
   effectiveStiffness,
+  renameChain,
+  renameNode,
   chainHasLimits,
   chainLimits,
   setChainLimits,

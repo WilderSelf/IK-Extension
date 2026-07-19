@@ -46,6 +46,18 @@ body {
   margin-bottom: 4px;
 }
 
+/* Title + Advanced toggle + build button stay pinned while the chain list
+   scrolls under them. The negative margins bleed over the body's 12px padding
+   so the opaque background fully hides content scrolling beneath. */
+.app-top {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--ik-bg);
+  margin: -12px -12px 0;
+  padding: 12px 12px 8px;
+}
+
 h1 {
   font-size: 15px;
   margin: 0 0 4px;
@@ -126,19 +138,99 @@ kbd {
   background: var(--ik-paper);
 }
 
+.chain.collapsed {
+  padding: 6px 10px;
+}
+
 .chain-header {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-bottom: 8px;
 }
 
+.chain.collapsed .chain-header {
+  margin-bottom: 0;
+}
+
+/* Name + token count; grows to fill the row so the controls sit at the end. */
+.chain-heading {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+/* The chain name doubles as a "select all this chain's tokens" button. */
+.chain-title-btn {
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  padding: 2px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.chain-title-btn:hover {
+  background: var(--ik-hover);
+}
+
 .chain-title {
+  display: block;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.header-ctl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+
+/* Borderless caret used to collapse/expand a chain card or a token row. */
+.caret-btn {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--ik-text-secondary);
+  padding: 2px;
+  border-radius: 4px;
+  display: inline-flex;
+  cursor: pointer;
+}
+
+.caret-btn:hover {
+  background: var(--ik-hover);
+  color: var(--ik-text);
+}
+
+.caret {
+  flex: none;
+  transition: transform 0.15s ease;
+}
+
+.caret.open {
+  transform: rotate(90deg);
+}
+
+/* Inline rename field for a chain or token display name. */
+.rename-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  padding: 2px 6px;
+  border: 1px solid var(--ik-primary);
+  border-radius: 6px;
+  background: var(--ik-bg);
+  color: var(--ik-text);
 }
 
 .chain-sub {

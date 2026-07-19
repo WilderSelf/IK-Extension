@@ -308,6 +308,38 @@ export function effectiveStiffness(chain: Chain, nodeId: string): Stiffness {
   return chain.nodes[nodeId]?.stiffness ?? chain.settings.defaultStiffness ?? "normal";
 }
 
+// ---- Display names (cosmetic; never touch the Owlbear item) -----------------
+
+/**
+ * Set or clear a chain's popover display name. An empty/whitespace name clears
+ * it, so the label falls back to the root token's scene name. No-op if the chain
+ * is gone. Does not rename the Owlbear item.
+ */
+export function renameChain(chains: ChainMap, chainId: string, name: string): ChainMap {
+  if (!chains[chainId]) return chains;
+  const next = clone(chains);
+  const trimmed = name.trim();
+  if (trimmed) next[chainId].name = trimmed;
+  else delete next[chainId].name;
+  return next;
+}
+
+/**
+ * Set or clear a node's popover display name. Empty/whitespace clears it (falls
+ * back to the token's scene name). Works for any node including the root; no-op
+ * if the token isn't in any chain. Does not rename the Owlbear item.
+ */
+export function renameNode(chains: ChainMap, tokenId: string, name: string): ChainMap {
+  const chain = findChainForToken(chains, tokenId);
+  if (!chain) return chains;
+  const next = clone(chains);
+  const trimmed = name.trim();
+  const node = next[chain.id].nodes[tokenId];
+  if (trimmed) node.name = trimmed;
+  else delete node.name;
+  return next;
+}
+
 // ---- Bend limits (captured by posing) --------------------------------------
 
 /** True if any joint in the chain carries a captured bend limit. */

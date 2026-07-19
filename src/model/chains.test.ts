@@ -14,6 +14,8 @@ import {
   orderedNodes,
   pruneMissing,
   removeToken,
+  renameChain,
+  renameNode,
   setChainLimits,
   setNodeStiffness,
   setParentNode,
@@ -203,6 +205,39 @@ describe("bend limits (capture / clear / expand)", () => {
     const existing = { B: { min: 0, max: 1 } };
     expandLimits(existing, { B: 2 });
     expect(existing).toEqual({ B: { min: 0, max: 1 } });
+  });
+});
+
+describe("display names (renameChain / renameNode)", () => {
+  const build = () =>
+    buildChain({}, ["R", "A", "B"], pos({ R: [0, 0], A: [10, 0], B: [20, 0] }), { R: 0, A: 0, B: 0 })!;
+
+  it("sets and clears a chain name", () => {
+    const [map, id] = build();
+    const named = renameChain(map, id, "  Leg  ");
+    expect(named[id].name).toBe("Leg"); // trimmed
+    const cleared = renameChain(named, id, "   ");
+    expect(cleared[id].name).toBeUndefined(); // whitespace clears
+  });
+
+  it("sets and clears a node name (any node incl. root)", () => {
+    const [map, id] = build();
+    let next = renameNode(map, "R", "Thigh");
+    next = renameNode(next, "A", "Knee");
+    expect(next[id].nodes["R"].name).toBe("Thigh");
+    expect(next[id].nodes["A"].name).toBe("Knee");
+    const cleared = renameNode(next, "A", "");
+    expect(cleared[id].nodes["A"].name).toBeUndefined();
+  });
+
+  it("ignores unknown targets and does not mutate the input", () => {
+    const [map, id] = build();
+    expect(renameChain(map, "nope", "X")).toBe(map);
+    expect(renameNode(map, "ghost", "X")).toBe(map);
+    const snapshot = JSON.stringify(map);
+    renameChain(map, id, "Leg");
+    renameNode(map, "A", "Knee");
+    expect(JSON.stringify(map)).toEqual(snapshot);
   });
 });
 

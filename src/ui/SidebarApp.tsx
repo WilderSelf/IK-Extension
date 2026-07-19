@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type KeyboardEvent, useEffect, useState } from "react";
 import OBR from "@owlbear-rodeo/sdk";
 import type { Chain, ChainMap, Stiffness } from "../types";
 import {
@@ -14,6 +14,8 @@ import {
   onChainsChange,
   orderedNodes,
   removeToken,
+  renameChain,
+  renameNode,
   saveChains,
   setChainLimits,
   setNodeStiffness,
@@ -24,7 +26,7 @@ import { relativeBends } from "../ik/pose";
 import { getItemNames, getPositions, getRotations, getSelectedTokenIds, getSelection } from "../obr/scene";
 import { POSE_SHORTCUT } from "../obr/constants";
 import { useObrTheme } from "./theme";
-import { AnchorIcon, CaretRightIcon, CloseIcon } from "./icons";
+import { AnchorIcon, CaretRightIcon, CloseIcon, PencilIcon } from "./icons";
 
 /** localStorage keys for per-browser UI preferences. */
 const ADVANCED_KEY = "ik.advanced";
@@ -203,7 +205,7 @@ export function SidebarApp() {
     await patch(next);
     setStatus(
       anchor
-        ? `Built a sub-chain pivoting at ${names[anchor] ?? "the anchor"} — it flexes on its own and follows when that chain moves.`
+        ? `Built a sub-chain joined at ${names[anchor] ?? "the anchor"}. Pose it on its own, and it moves with ${names[anchor] ?? "the anchor"}'s chain.`
         : `Built a ${buildIds.length}-token chain. Pick the IK Chains tool (or press ${POSE_SHORTCUT}) and drag a token to pose it.`,
     );
   }
@@ -223,18 +225,29 @@ export function SidebarApp() {
   const list = Object.values(chains);
 
   return (
-    <div>
-      <div className="app-header">
-        <h1>IK Chains</h1>
-        <label className="adv-toggle" title="Show per-token stiffness controls">
-          <input type="checkbox" checked={advanced}
-            onChange={(e) => toggleAdvanced(e.target.checked)} />
-          Advanced
-        </label>
+    <div className="app">
+      {/* Sticky top: title, Advanced toggle, and the build button stay put while
+          the chain list scrolls under them. */}
+      <div className="app-top">
+        <div className="app-header">
+          <h1>IK Chains</h1>
+          <label className="adv-toggle"
+            title="Reveal extra per-token controls: stiffness weights and bend limits">
+            <input type="checkbox" checked={advanced}
+              onChange={(e) => toggleAdvanced(e.target.checked)} />
+            Advanced
+          </label>
+        </div>
+
+        <button className="primary" onClick={onNewChain} disabled={!ready}
+          title="Build a chain from the selected tokens — select the root first, then each token outward">
+          New chain from selection
+        </button>
       </div>
+
       <div className="help">
         <button type="button" className="help-toggle" aria-expanded={helpOpen}
-          onClick={toggleHelp}>
+          onClick={toggleHelp} title={helpOpen ? "Hide the how-it-works help" : "Show the how-it-works help"}>
           <CaretRightIcon size={12} className={`help-caret${helpOpen ? " open" : ""}`} />
           How it works
         </button>
@@ -251,10 +264,6 @@ export function SidebarApp() {
         )}
       </div>
 
-      <button className="primary" onClick={onNewChain} disabled={!ready}>
-        New chain from selection
-      </button>
-
       {!ready && <p className="empty">Connecting to Owlbear Rodeo…</p>}
       {ready && list.length === 0 && <p className="empty">No chains yet.</p>}
 
@@ -268,20 +277,23 @@ export function SidebarApp() {
         </div>
       )}
 
-      {list.map((chain) => (
-        <ChainCard
-          key={chain.id}
-          chain={chain}
-          chains={chains}
-          names={names}
-          selected={selected}
-          advanced={advanced}
-          onPatch={patch}
-          onAttach={onAttach}
-          onDetach={onDetach}
-          onSelectNode={(id) => OBR.player.select([id], true).catch(() => {})}
-        />
-      ))}
+      <div className="chain-list">
+        {list.map((chain) => (
+          <ChainCard
+            key={chain.id}
+            chain={chain}
+            chains={chains}
+            names={names}
+            selected={selected}
+            advanced={advanced}
+            onPatch={patch}
+            onAttach={onAttach}
+            onDetach={onDetach}
+            onSelectNode={(id) => OBR.player.select([id], true).catch(() => {})}
+            onSelectChain={(ids) => OBR.player.select(ids, true).catch(() => {})}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -296,6 +308,7 @@ function ChainCard({
   onAttach,
   onDetach,
   onSelectNode,
+  onSelectChain,
 }: {
   chain: Chain;
   chains: ChainMap;
@@ -306,9 +319,43 @@ function ChainCard({
   onAttach: (chainId: string, parentTokenId: string) => void;
   onDetach: (chainId: string) => void;
   onSelectNode: (id: string) => void;
+  onSelectChain: (ids: string[]) => void;
 }) {
   const nodes = orderedNodes(chain);
   const rootName = names[chain.rootId] ?? chain.rootId.slice(0, 8);
+  // Display labels: the custom name if set, else the token's scene name.
+  const chainLabel = chain.name?.trim() || rootName;
+  const nodeLabel = (id: string) => chain.nodes[id]?.name?.trim() || names[id] || id.slice(0, 8);
+
+  // Collapse the whole card to just its name; collapse each token to just its
+  // name (hiding its stiffness sub-row). Tokens start collapsed so the list
+  // stays compact — expand a token to tweak its stiffness.
+  const [collapsed, setCollapsed] = useState(false);
+  const [openTokens, setOpenTokens] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleToken = (id: string) =>
+    setOpenTokens((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  // Inline rename for the chain name or a single token's name.
+  const [editing, setEditing] = useState<null | { type: "chain" } | { type: "node"; id: string }>(null);
+  const [draft, setDraft] = useState("");
+  const startEditChain = () => { setEditing({ type: "chain" }); setDraft(chain.name ?? rootName); };
+  const startEditNode = (id: string) => { setEditing({ type: "node", id }); setDraft(chain.nodes[id]?.name ?? names[id] ?? ""); };
+  const commitEdit = () => {
+    if (!editing) return;
+    onPatch(editing.type === "chain"
+      ? renameChain(chains, chain.id, draft)
+      : renameNode(chains, editing.id, draft));
+    setEditing(null);
+  };
+  const cancelEdit = () => setEditing(null);
+  const renameKeys = (e: KeyboardEvent) => {
+    if (e.key === "Enter") commitEdit();
+    else if (e.key === "Escape") cancelEdit();
+  };
 
   const onDelete = () => onPatch(deleteChain(chains, chain.id));
   const onRemoveNode = (id: string) => onPatch(removeToken(chains, id));
@@ -374,17 +421,48 @@ function ChainCard({
   const canAttach = !!targetOwner && targetOwner.id !== chain.id;
 
   return (
-    <div className="chain">
+    <div className={`chain${collapsed ? " collapsed" : ""}`}>
       <div className="chain-header">
-        <div>
-          <div className="chain-title">{rootName}</div>
-          <div className="chain-sub">{nodes.length} token{nodes.length === 1 ? "" : "s"}</div>
+        <button className="caret-btn" aria-expanded={!collapsed}
+          aria-label={collapsed ? "Expand chain" : "Collapse chain"}
+          title={collapsed ? "Expand this chain" : "Collapse this chain to just its name"}
+          onClick={() => setCollapsed((c) => !c)}>
+          <CaretRightIcon size={12} className={`caret${collapsed ? "" : " open"}`} />
+        </button>
+        <div className="chain-heading">
+          {editing?.type === "chain" ? (
+            <input className="rename-input" autoFocus value={draft} aria-label="Chain name"
+              title="Type a name for this chain, then press Enter (Esc to cancel)"
+              onChange={(e) => setDraft(e.target.value)} onBlur={commitEdit} onKeyDown={renameKeys} />
+          ) : (
+            <button className="chain-title-btn" onClick={() => onSelectChain(nodes)}
+              title="Select all of this chain's tokens on the map">
+              <span className="chain-title">{chainLabel}</span>
+            </button>
+          )}
+          {!collapsed && (
+            <div className="chain-sub">{nodes.length} token{nodes.length === 1 ? "" : "s"}</div>
+          )}
         </div>
-        <button className="danger" onClick={onDelete}>Delete</button>
+        <div className="header-ctl">
+          {editing?.type !== "chain" && (
+            <button className="mini-btn icon-btn" onClick={startEditChain}
+              title="Rename this chain" aria-label="Rename chain"><PencilIcon size={13} /></button>
+          )}
+          {!collapsed && (
+            <button className="mini-btn danger" onClick={onDelete}
+              title="Delete this whole chain">Delete</button>
+          )}
+        </div>
       </div>
 
+      {!collapsed && (
+       <>
       <div className="row">
-        <label htmlFor={`ar-${chain.id}`}>Auto-rotate tokens</label>
+        <label htmlFor={`ar-${chain.id}`}
+          title="Turn each token to follow its bone as the chain flexes, so its art keeps facing the right way">
+          Auto-rotate tokens
+        </label>
         <input id={`ar-${chain.id}`} type="checkbox"
           checked={chain.settings.autoRotate}
           onChange={(e) => setAutoRotate(e.target.checked)} />
@@ -451,38 +529,66 @@ function ChainCard({
         {nodes.map((id) => {
           const isRoot = id === chain.rootId;
           const overridden = chain.nodes[id]?.stiffness !== undefined;
+          const hasDetail = advanced && !isRoot; // the stiffness sub-row
+          const open = openTokens.has(id);
+          const editingThis = editing?.type === "node" && editing.id === id;
           return (
             <div className={`node${selected.has(id) ? " selected" : ""}`} key={id}
               style={{ paddingLeft: isRoot ? 8 : 22 }}>
               <div className="node-row">
-                <button type="button" className="node-main node-select"
-                  title="Select this token on the map" onClick={() => onSelectNode(id)}>
-                  {isRoot
-                    ? <span className="node-icon root" title="Pinned root"><AnchorIcon size={13} /></span>
-                    : <span className="node-icon"><CaretRightIcon size={12} /></span>}
-                  <span className="node-name">{names[id] ?? id.slice(0, 8)}</span>
-                  {isRoot && <span className="badge">root</span>}
-                </button>
+                {isRoot ? (
+                  <span className="node-icon root" title="Pinned root"><AnchorIcon size={13} /></span>
+                ) : hasDetail ? (
+                  <button className="caret-btn" aria-expanded={open}
+                    aria-label={open ? "Hide stiffness" : "Show stiffness"}
+                    title={open ? "Hide this token's stiffness" : "Show this token's stiffness"}
+                    onClick={() => toggleToken(id)}>
+                    <CaretRightIcon size={12} className={`caret${open ? " open" : ""}`} />
+                  </button>
+                ) : (
+                  <span className="node-icon"><CaretRightIcon size={12} /></span>
+                )}
+                {editingThis ? (
+                  <input className="rename-input" autoFocus value={draft} aria-label="Token name"
+                    title="Type a name for this token, then press Enter (Esc to cancel)"
+                    onChange={(e) => setDraft(e.target.value)} onBlur={commitEdit} onKeyDown={renameKeys} />
+                ) : (
+                  <button type="button" className="node-main node-select"
+                    title="Select this token on the map" onClick={() => onSelectNode(id)}>
+                    <span className="node-name">{nodeLabel(id)}</span>
+                    {isRoot && <span className="badge">root</span>}
+                  </button>
+                )}
                 <div className="node-ctl">
+                  {!editingThis && (
+                    <button className="mini-btn icon-btn" onClick={() => startEditNode(id)}
+                      title="Rename this token's display name"
+                      aria-label={`Rename ${nodeLabel(id)}`}><PencilIcon size={13} /></button>
+                  )}
                   <button className="mini-btn danger icon-btn"
                     title={isRoot ? "Delete the whole chain" : "Remove this token and the strand past it"}
-                    aria-label={isRoot ? "Delete the whole chain" : `Remove ${names[id] ?? "token"}`}
+                    aria-label={isRoot ? "Delete the whole chain" : `Remove ${nodeLabel(id)}`}
                     onClick={() => onRemoveNode(id)}><CloseIcon size={13} /></button>
                 </div>
               </div>
-              {advanced && !isRoot && (
+              {hasDetail && open && (
                 <div className="node-stiffness">
-                  <span className="node-stiffness-label">Stiffness</span>
+                  <span className="node-stiffness-label"
+                    title="How much this token's bone resists bending, relative to the rest of the chain">
+                    Stiffness
+                  </span>
                   <StiffnessControl mini inherited={!overridden}
                     value={effectiveStiffness(chain, id)}
                     onSelect={(s) => setNodeStiff(id, s)}
-                    label={`Stiffness for ${names[id] ?? "token"}`} />
+                    label={`Stiffness for ${nodeLabel(id)}`} />
                 </div>
               )}
             </div>
           );
         })}
       </div>
+       </>
+      )}
     </div>
   );
 }

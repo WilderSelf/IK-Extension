@@ -6,9 +6,9 @@ import OBR, {
 import { type Chain, type ChainMap, type Vec2, DEFAULT_ROTATION_OFFSET_DEG } from "../types";
 import { type Grab, type Pose, poseRig } from "../ik/pose";
 import { MODE_POSE, POSE_SHORTCUT, TOOL_ID, asset } from "./constants";
-import { descendantChainIds, findChainForToken, getChains } from "./chainStore";
-import { refreshBones } from "./bones";
-import { getPositions, radToObrDeg } from "./scene";
+import { descendantChainIds, findChainForToken, getChains, saveChains, setJointPivot } from "./chainStore";
+import { editPivotsEnabled, findNearestJoint, previewBones, refreshBones } from "./bones";
+import { getPositions, getRotations, radToObrDeg } from "./scene";
 import { dist } from "../ik/vec";
 
 /**
@@ -21,6 +21,8 @@ import { dist } from "../ik/vec";
 
 /** Max distance (scene units) to associate a pointer with a chained token. */
 const GRAB_RADIUS = 300;
+/** Max distance (scene units) to grab a joint pivot in edit-pivots mode. */
+const JOINT_GRAB_RADIUS = 150;
 
 type InteractionUpdate = (draft: (items: Item[]) => void) => Item[];
 type InteractionStop = () => void;
@@ -42,6 +44,17 @@ interface DragState {
 }
 
 let drag: DragState | null = null;
+
+// An in-progress pivot drag (edit-pivots mode). The token centres are cached at
+// start — they don't move while a joint is dragged — so live preview + the final
+// save don't re-read the scene per pointer move.
+interface PivotDrag {
+  chainId: string;
+  jointIndex: number;
+  chains: ChainMap;
+  positions: Record<string, Vec2>;
+}
+let pivotDrag: PivotDrag | null = null;
 
 // True while onPoseDragStart is awaiting async setup. If the drag is ended or
 // cancelled during that window, `cancelledDuringStart` tells setup to tear the
@@ -120,14 +133,36 @@ function applyPose(state: DragState, pose: Pose, items: Item[]): void {
   }
 }
 
+/**
+ * Edit-pivots mode: pick up the nearest segment-rig joint to the pointer. The
+ * token centres are cached so the drag previews and saves without re-reading the
+ * scene each move. No joint within reach → nothing happens (posing stays off).
+ */
+async function startPivotDrag(event: ToolEvent): Promise<void> {
+  const chains = await getChains();
+  const ids = [...new Set(Object.values(chains).flatMap((c) => Object.keys(c.nodes)))];
+  if (ids.length === 0) return;
+  const positions = await getPositions(ids);
+  const hit = findNearestJoint(chains, positions, event.pointerPosition, JOINT_GRAB_RADIUS);
+  if (!hit || cancelledDuringStart) return;
+  pivotDrag = { chainId: hit.chainId, jointIndex: hit.jointIndex, chains, positions };
+}
+
 async function onPoseDragStart(_ctx: ToolContext, event: ToolEvent): Promise<void> {
   drag = null;
+  pivotDrag = null;
   starting = true;
   cancelledDuringStart = false;
   try {
     // GM-only: players never pose (safe default; the tool icon is GM-filtered
     // too, so a player never even sees it).
     if ((await OBR.player.getRole()) !== "GM") return;
+
+    // Pivot-edit mode redirects the drag from posing to moving a joint pivot.
+    if (editPivotsEnabled()) {
+      await startPivotDrag(event);
+      return;
+    }
 
     const chains = await getChains();
     const grabbed = await resolveGrabbed(chains, event);
@@ -187,6 +222,15 @@ async function onPoseDragStart(_ctx: ToolContext, event: ToolEvent): Promise<voi
 }
 
 function onPoseDragMove(_ctx: ToolContext, event: ToolEvent): void {
+  if (pivotDrag) {
+    // Live feedback: redraw the overlay with this joint following the pointer.
+    previewBones(pivotDrag.chains, pivotDrag.positions, {
+      chainId: pivotDrag.chainId,
+      jointIndex: pivotDrag.jointIndex,
+      world: event.pointerPosition,
+    }).catch(() => {});
+    return;
+  }
   if (!drag) return;
   const state = drag;
   const pose = computePose(state, event.pointerPosition);
@@ -198,6 +242,18 @@ async function onPoseDragEnd(_ctx: ToolContext, event: ToolEvent): Promise<void>
   // cancel and let onPoseDragStart clean up the pending interaction.
   if (starting) {
     cancelledDuringStart = true;
+    return;
+  }
+  if (pivotDrag) {
+    const pd = pivotDrag;
+    pivotDrag = null;
+    // Persist the joint's new home (in its anchor frame) and recapture rest data.
+    // Re-read chains so a concurrent edit isn't clobbered; positions were cached.
+    const ids = Object.keys(pd.chains[pd.chainId]?.nodes ?? {});
+    const [chains, rotations] = await Promise.all([getChains(), getRotations(ids)]);
+    const next = setJointPivot(chains, pd.chainId, pd.jointIndex, event.pointerPosition, pd.positions, rotations);
+    if (next !== chains) await saveChains(next);
+    await refreshBones();
     return;
   }
   if (!drag) return;
@@ -216,6 +272,12 @@ async function onPoseDragEnd(_ctx: ToolContext, event: ToolEvent): Promise<void>
 function onPoseDragCancel(): void {
   if (starting) {
     cancelledDuringStart = true;
+    return;
+  }
+  if (pivotDrag) {
+    // Drop the preview and redraw the saved skeleton.
+    pivotDrag = null;
+    refreshBones().catch(() => {});
     return;
   }
   if (!drag) return;

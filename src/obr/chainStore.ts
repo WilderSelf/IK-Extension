@@ -20,6 +20,8 @@ export {
   enableSegmentRig,
   disableSegmentRig,
   isSegmentRig,
+  setJointPivot,
+  resetJointPivots,
   chainHasLimits,
   chainLimits,
   setChainLimits,

@@ -100,11 +100,26 @@ export interface ChainNode {
   /**
    * Rigid-segment data for a segment rig (`ChainSettings.segmentRig`). Captured
    * from the rest pose when limb mode is turned on: `len` is the token's segment
-   * length (joint→joint), `frac` where its centre sits along that segment, and
-   * `offsetDeg` its authored rotation relative to the segment direction (the
+   * length (joint→joint); `seatAlong`/`seatPerp` place its centre within the
+   * segment's frame (along the segment, and perpendicular to it, as fractions of
+   * the segment length) so a custom pivot doesn't drag the token off its art; and
+   * `offsetDeg` is its authored rotation relative to the segment direction (the
    * segment-model analogue of `boneOffsetDeg`). Unset when not a segment rig.
    */
-  seg?: { len: number; frac: number; offsetDeg: number };
+  seg?: { len: number; seatAlong: number; seatPerp: number; offsetDeg: number };
+}
+
+/**
+ * Where a segment rig's joint sits, expressed in the frame of an anchor pair of
+ * token centres (A, B): `joint = A + along·(B−A) + perp·perp(B−A)`, where
+ * `perp(d) = (−d.y, d.x)`. This keeps a joint (a bone pivot) defined relative to
+ * the tokens, so it follows the rig as it poses, yet is freely draggable. A
+ * chain's `pivots` array has one per joint (N+1 for N tokens); absent = the
+ * auto-derived midpoints.
+ */
+export interface JointParam {
+  along: number;
+  perp: number;
 }
 
 export interface ChainSettings {
@@ -166,6 +181,12 @@ export interface Chain {
    */
   nodes: Record<string, ChainNode>;
   settings: ChainSettings;
+  /**
+   * Segment-rig joint pivots, one per joint (N+1 for N nodes), captured when limb
+   * mode is on and adjusted by dragging joints on the canvas. Absent = the
+   * auto-derived midpoint joints. Only meaningful when `settings.segmentRig`.
+   */
+  pivots?: JointParam[];
   /**
    * Optional link: the token id of a node in ANOTHER chain that this chain
    * "follows". When that node moves (its owning chain is posed or translated),

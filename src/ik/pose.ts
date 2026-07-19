@@ -160,7 +160,9 @@ export function poseRig(
       const centres = order.map((id) => base[id]);
       if (centres.every(Boolean)) {
         const seg = order.map((id) => posed.nodes[id].seg!);
-        const joints = solveSegmentJoints(centres as Vec2[], seg, order.indexOf(grab.grabbedId), grab.target, opts);
+        const joints = solveSegmentJoints(
+          centres as Vec2[], seg, order.indexOf(grab.grabbedId), grab.target, opts, posed.pivots,
+        );
         seatTokens(joints, seg).forEach((c, i) => {
           out[order[i]] = c;
         });
@@ -223,7 +225,7 @@ export function poseRig(
     // default rig orients along its incoming bone (parent centre → own centre).
     const order = orderedNodes(chain);
     const segCentres = isSegmentRig(chain) ? order.map((t) => out[t]) : null;
-    const segAngles = segCentres && segCentres.every(Boolean) ? segmentAngles(segCentres as Vec2[]) : null;
+    const segAngles = segCentres && segCentres.every(Boolean) ? segmentAngles(segCentres as Vec2[], chain.pivots) : null;
     const angleEntries: [string, number][] = segAngles
       ? order.map((tid, i) => [tid, segAngles[i]])
       : Object.entries(boneAngles(chain, out));

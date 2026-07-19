@@ -267,6 +267,43 @@ kbd {
   line-height: 1;
 }
 
+/* Collapsible intro help: a single "How it works" line that expands the hint. */
+.help {
+  margin-bottom: 12px;
+}
+
+.help-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: none;
+  background: transparent;
+  padding: 2px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ik-text-secondary);
+  cursor: pointer;
+}
+
+.help-toggle:hover {
+  background: transparent;
+  color: var(--ik-text);
+}
+
+/* Disclosure caret: points right when collapsed, down when open. */
+.help-caret {
+  flex: none;
+  transition: transform 0.15s ease;
+}
+
+.help-caret.open {
+  transform: rotate(90deg);
+}
+
+.help .hint {
+  margin: 6px 0 0;
+}
+
 /* "Advanced" preference toggle in the app header. */
 .adv-toggle {
   display: inline-flex;

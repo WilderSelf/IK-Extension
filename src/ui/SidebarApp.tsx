@@ -20,8 +20,9 @@ import { POSE_SHORTCUT } from "../obr/constants";
 import { useObrTheme } from "./theme";
 import { AnchorIcon, CaretRightIcon, CloseIcon } from "./icons";
 
-/** localStorage key for the per-browser "Advanced settings" preference. */
+/** localStorage keys for per-browser UI preferences. */
 const ADVANCED_KEY = "ik.advanced";
+const HELP_KEY = "ik.help";
 
 const STIFFNESS_OPTIONS: { value: Stiffness; label: string }[] = [
   { value: "loose", label: "Loose" },
@@ -87,6 +88,26 @@ export function SidebarApp() {
     } catch {
       /* private-mode / storage-disabled embeds: keep the in-memory toggle */
     }
+  };
+  // The intro help collapses to a single line; it's shown by default and the
+  // last open/closed choice persists per browser (only "0" hides it).
+  const [helpOpen, setHelpOpen] = useState(() => {
+    try {
+      return localStorage.getItem(HELP_KEY) !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const toggleHelp = () => {
+    setHelpOpen((open) => {
+      const next = !open;
+      try {
+        localStorage.setItem(HELP_KEY, next ? "1" : "0");
+      } catch {
+        /* storage-disabled embeds: keep the in-memory state */
+      }
+      return next;
+    });
   };
   useObrTheme();
 
@@ -205,15 +226,24 @@ export function SidebarApp() {
           Advanced
         </label>
       </div>
-      <p className="hint">
-        Rig tokens into a chain and pose them like a limb. Select tokens
-        {" "}<strong>root first, then outward</strong>, then build the chain. Pick the
-        {" "}<strong>IK Chains</strong> tool (or press <kbd>{POSE_SHORTCUT}</kbd>) and drag
-        any token — the chain flexes with the root pinned. Drag the root to move the
-        whole thing. To make a sub-chain (a claw, a pincher) ride along with the main
-        one, select a token in the main chain <em>first</em>, then the sub-chain's
-        tokens, and build — or use a chain card's <strong>Attach</strong> button.
-      </p>
+      <div className="help">
+        <button type="button" className="help-toggle" aria-expanded={helpOpen}
+          onClick={toggleHelp}>
+          <CaretRightIcon size={12} className={`help-caret${helpOpen ? " open" : ""}`} />
+          How it works
+        </button>
+        {helpOpen && (
+          <p className="hint" id="help-body">
+            Rig tokens into a chain and pose them like a limb. Select tokens
+            {" "}<strong>root first, then outward</strong>, then build the chain. Pick the
+            {" "}<strong>IK Chains</strong> tool (or press <kbd>{POSE_SHORTCUT}</kbd>) and drag
+            any token — the chain flexes with the root pinned. Drag the root to move the
+            whole thing. To make a sub-chain (a claw, a pincher) ride along with the main
+            one, select a token in the main chain <em>first</em>, then the sub-chain's
+            tokens, and build — or use a chain card's <strong>Attach</strong> button.
+          </p>
+        )}
+      </div>
 
       <button className="primary" onClick={onNewChain} disabled={!ready}>
         New chain from selection

@@ -272,6 +272,23 @@ export function poseRig(
           ? rigidTranslate(posed, base, grab.delta)
           : solvePose(posed, base, grab.grabbedId, grab.target, { ...opts, ...anchorOpts });
       Object.assign(out, solved.positions);
+      // A segment rig reaching this branch is a rigid TRANSLATE (a segment SOLVE
+      // takes the joint path above). Its orientations don't change, so its
+      // segment angles are the rest angles reconstructed from the base pose. Emit
+      // those — the centre-based `boneAngles` fallback used below would otherwise
+      // spin an off-axis limb (segment direction ≠ centre-to-centre direction) on
+      // a mere translate, since applyPose pairs them with the segment offset.
+      if (isSegmentRig(posed)) {
+        const order = orderedNodes(posed);
+        const centres = order.map((id) => base[id]);
+        if (centres.every(Boolean)) {
+          const seg = order.map((id) => posed.nodes[id].seg!);
+          const rot = order.map((id) => baseRot[id] ?? 0);
+          jointAngles(reconstructJoints(centres as Vec2[], rot, seg)).forEach((a, i) => {
+            segAngle[order[i]] = a;
+          });
+        }
+      }
     }
   }
 
@@ -293,6 +310,25 @@ export function poseRig(
     }
     return a;
   };
+  // Rest SEGMENT angles per segment-rig owner, cached (the base pose is constant).
+  // A segment-rig node orients along its segment, not its centre-to-centre bone,
+  // so a sub-chain attached to it must be carried by the segment's turn.
+  const baseSegAngles = new Map<string, Record<string, number>>();
+  const segBaseOf = (chainId: string): Record<string, number> => {
+    let a = baseSegAngles.get(chainId);
+    if (!a) {
+      a = {};
+      const oc = orderedNodes(chains[chainId]);
+      const centres = oc.map((id) => base[id]);
+      if (centres.every(Boolean)) {
+        const seg = oc.map((id) => chains[chainId].nodes[id].seg!);
+        const rotd = oc.map((id) => baseRot[id] ?? 0);
+        jointAngles(reconstructJoints(centres as Vec2[], rotd, seg)).forEach((ang, i) => (a![oc[i]] = ang));
+      }
+      baseSegAngles.set(chainId, a);
+    }
+    return a;
+  };
 
   for (const childId of descendants) {
     const child = chains[childId];
@@ -300,14 +336,24 @@ export function poseRig(
     const ownerId = parentChainId(chains, childId);
     if (!p || !ownerId || !(p in base) || !(p in out)) continue;
     const owner = chains[ownerId];
-    // The parent node's rigid transform: translation, plus the turn of its
-    // incoming bone. A pinned root doesn't rotate (its "bone angle" tracks its
-    // first child, which would spin an attached sub-rig oddly), so use 0 there.
+    // The parent node's rigid transform: translation, plus the turn of the node's
+    // orientation. For a SEGMENT-RIG owner the node orients along its SEGMENT
+    // (that's what applyPose writes), so carry the sub-rig by the segment's turn —
+    // centre-based boneAngles don't match the token's real rotation and would
+    // mis-orient the attached chain. Otherwise use the incoming-bone turn, with a
+    // pinned centre-rig root fixed at 0 (its bone angle tracks its first child,
+    // which would spin an attached sub-rig oddly).
     const trans = sub(out[p], base[p]);
-    const dRotRaw =
-      p === owner.rootId
-        ? 0
-        : anglesOf(curAngles, ownerId, out)[p] - anglesOf(baseAngles, ownerId, base)[p];
+    let dRotRaw: number;
+    if (isSegmentRig(owner) && p in segAngle) {
+      const baseSeg = segBaseOf(ownerId)[p];
+      dRotRaw = baseSeg === undefined ? 0 : segAngle[p] - baseSeg;
+    } else {
+      dRotRaw =
+        p === owner.rootId
+          ? 0
+          : anglesOf(curAngles, ownerId, out)[p] - anglesOf(baseAngles, ownerId, base)[p];
+    }
     const dRot = Number.isFinite(dRotRaw) ? dRotRaw : 0;
     for (const b of Object.keys(child.nodes)) {
       const baseB = base[b];

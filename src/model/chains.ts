@@ -113,21 +113,23 @@ export function buildChain(
   if (orderedIds.length < 2) return null;
   if (new Set(orderedIds).size !== orderedIds.length) return null;
   const [root, ...rest] = orderedIds;
-  const created = createChain(chains, root);
-  let map = created[0];
-  const id = created[1];
+  // Clone ONCE (createChain) and append nodes into the new chain in place. Routing
+  // each node through `addNode` would deep-clone the whole growing map per token
+  // (O(N²)); building into the single fresh chain is O(N) and byte-identical.
+  const [map, id] = createChain(chains, root);
+  const chain = map[id];
   let parent = root;
   for (const tokenId of rest) {
     const a = positions[parent];
     const b = positions[tokenId];
     const restLength = a && b ? Math.hypot(b.x - a.x, b.y - a.y) : 0;
-    let boneOffsetDeg: number | undefined;
+    const node: ChainNode = { parentId: parent, restLength };
     if (a && b && rotations[tokenId] !== undefined) {
       // Bone angle parent->node in degrees, matching ik/vec `angle` + boneAngles.
       const boneDeg = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
-      boneOffsetDeg = rotations[tokenId] - boneDeg;
+      node.boneOffsetDeg = rotations[tokenId] - boneDeg;
     }
-    map = addNode(map, id, tokenId, parent, restLength, boneOffsetDeg);
+    chain.nodes[tokenId] = node;
     parent = tokenId;
   }
   // Capture the ROOT's rotation offset too — against its OUTGOING bone
@@ -140,9 +142,9 @@ export function buildChain(
   const rb = positions[firstChild];
   if (ra && rb && rotations[root] !== undefined) {
     const rootBoneDeg = (Math.atan2(rb.y - ra.y, rb.x - ra.x) * 180) / Math.PI;
-    map[id].nodes[root].boneOffsetDeg = rotations[root] - rootBoneDeg;
+    chain.nodes[root].boneOffsetDeg = rotations[root] - rootBoneDeg;
   }
-  map[id].color = pickChainColor(chains); // distinct highlight colour per chain
+  chain.color = pickChainColor(chains); // distinct highlight colour per chain
   return [map, id];
 }
 
@@ -171,7 +173,7 @@ export function removeToken(chains: ChainMap, tokenId: string): ChainMap {
   const c = next[chain.id];
   if (c.rootId === tokenId) {
     delete next[chain.id];
-    return detachDangling(next);
+    return detachDangling(next, chains);
   }
   const order = orderedNodes(c);
   const idx = order.indexOf(tokenId);
@@ -179,7 +181,7 @@ export function removeToken(chains: ChainMap, tokenId: string): ChainMap {
   const nodes: Record<string, ChainNode> = {};
   for (let i = 0; i < idx; i++) nodes[order[i]] = c.nodes[order[i]];
   c.nodes = nodes;
-  return detachDangling(next);
+  return detachDangling(next, chains);
 }
 
 /**
@@ -202,14 +204,16 @@ export function pruneMissing(chains: ChainMap, existingIds: Set<string>): ChainM
     for (const id of keep) nodes[id] = chain.nodes[id];
     next[chainId] = { ...chain, nodes };
   }
-  return detachDangling(next);
+  // Scene-aware: `existingIds` lets a bare parent that was DELETED from the scene
+  // be detached too, while a bare parent that still exists is preserved.
+  return detachDangling(next, chains, existingIds);
 }
 
 /** Delete an entire chain (orphaning any chains that followed one of its nodes). */
 export function deleteChain(chains: ChainMap, chainId: string): ChainMap {
   const next = clone(chains);
   delete next[chainId];
-  return detachDangling(next);
+  return detachDangling(next, chains);
 }
 
 // ---- Attachment (a chain that follows a node of another chain) -------------
@@ -282,17 +286,43 @@ export function descendantChainIds(chains: ChainMap, chainId: string): string[] 
   return out;
 }
 
+/** Every token id that is a node of some chain in `m`. */
+function chainTokenSet(m: ChainMap): Set<string> {
+  const s = new Set<string>();
+  for (const c of Object.values(m)) for (const t of Object.keys(c.nodes)) s.add(t);
+  return s;
+}
+
 /**
- * Clear any parent link whose target token is no longer a node of a different
- * existing chain (its parent chain or node was deleted / truncated / pruned).
- * Returns a new map; inputs are not mutated.
+ * Clear a chain's parent link ONLY when it has genuinely gone stale — while
+ * preserving a valid link to a BARE parent token (a body sprite that isn't a
+ * chain node, the whole point of the reactive-follow feature). A link is severed
+ * when:
+ *  - it resolves back to this same chain (a shared-pivot anchor whose parent
+ *    chain was deleted, leaving the token as only this chain's own root); or
+ *  - the parent token WAS a chain node (present in `prev`) and is now gone from
+ *    every chain — a deleted / truncated / pruned node. A bare token was never a
+ *    chain node, so it is not caught here; or
+ *  - `existing` (a scene-id set) is supplied and the parent is a bare token that
+ *    no longer exists in the scene (its body was deleted).
+ *
+ * `prev` is the pre-operation map. Earlier this used "not a node of any chain" as
+ * the staleness test, which wrongly matched every bare parent — so any prune /
+ * remove / delete silently detached arms-on-bodies. Returns a new map; inputs are
+ * not mutated.
  */
-function detachDangling(chains: ChainMap): ChainMap {
+function detachDangling(next: ChainMap, prev?: ChainMap, existing?: Set<string>): ChainMap {
+  const nextTokens = chainTokenSet(next);
+  const prevTokens = prev ? chainTokenSet(prev) : nextTokens;
   const out: ChainMap = {};
-  for (const [id, chain] of Object.entries(chains)) {
-    if (chain.parentNodeId != null) {
-      const owner = findChainForToken(chains, chain.parentNodeId);
-      if (!owner || owner.id === id) {
+  for (const [id, chain] of Object.entries(next)) {
+    const p = chain.parentNodeId;
+    if (p != null) {
+      const owner = findChainForToken(next, p);
+      const resolvesToSelf = !!owner && owner.id === id;
+      const wasChainNodeNowGone = prevTokens.has(p) && !nextTokens.has(p);
+      const bareAndSceneGone = !owner && !prevTokens.has(p) && existing != null && !existing.has(p);
+      if (resolvesToSelf || wasChainNodeNowGone || bareAndSceneGone) {
         const copy: Chain = { ...chain };
         delete copy.parentNodeId;
         out[id] = copy;
